@@ -1,0 +1,56 @@
+"""Fail unless line coverage of each guarded package meets the minimum.
+
+Reads coverage.json (written by `pytest --cov-report=json`) and checks every package
+separately, because coverage.py's own `fail_under` only checks the overall total.
+"""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+GUARDED_PACKAGES = ("app/api", "app/core")
+
+
+def package_coverage(
+    files: dict[str, dict[str, dict[str, float]]], package: str
+) -> tuple[int, int]:
+    """Return (covered_lines, statements) for files under `package`."""
+    covered = statements = 0
+    for name, data in files.items():
+        if name.replace("\\", "/").startswith(package + "/"):
+            statements += int(data["summary"]["num_statements"])
+            covered += int(data["summary"]["covered_lines"])
+    return covered, statements
+
+
+def main() -> int:
+    """Check each guarded package and return a process exit code."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--file", default="coverage.json")
+    parser.add_argument("--min", type=float, default=85.0, dest="minimum")
+    args = parser.parse_args()
+
+    path = Path(args.file)
+    if not path.exists():
+        print(f"coverage check: {path} not found; run pytest with --cov-report=json first")
+        return 1
+    files = json.loads(path.read_text())["files"]
+
+    failed = False
+    for package in GUARDED_PACKAGES:
+        covered, statements = package_coverage(files, package)
+        if statements == 0:
+            print(f"coverage check: no statements measured for {package}")
+            failed = True
+            continue
+        percent = 100.0 * covered / statements
+        ok = percent >= args.minimum
+        failed |= not ok
+        verdict = "ok" if ok else "FAIL"
+        print(f"coverage check: {package:<9} {percent:6.2f}% (min {args.minimum:.0f}%) {verdict}")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

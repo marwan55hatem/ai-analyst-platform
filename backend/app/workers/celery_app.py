@@ -17,7 +17,5 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
-    beat_schedule={
-        "ping-every-5-minutes": {"task": "app.workers.tasks.ping", "schedule": 300.0},
-    },
+    beat_schedule={},  # placeholder: periodic tasks are registered here
 )
