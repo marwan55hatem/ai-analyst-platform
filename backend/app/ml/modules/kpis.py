@@ -254,7 +254,7 @@ def _growth(ctx: AnalysisContext) -> Insight | None:
     # a year-over-year change is not distorted by seasonality, so it is the headline when known
     headline = yoy if yoy is not None else pop
     assert headline is not None
-    basis = f"{label} over {label} last year" if yoy is not None else f"{label} over {label}"
+    basis = f"vs the same {label} last year" if yoy is not None else f"vs the previous {label}"
     direction = "up" if headline >= 0 else "down"
     reference = by_period[yoy_start] if yoy is not None else by_period[prev_start]
     when = latest.isoformat()[: 7 if unit == "month" else 4]
@@ -264,7 +264,7 @@ def _growth(ctx: AnalysisContext) -> Insight | None:
         ctx,
         module="kpis",
         type="growth",
-        title=f"Revenue is {direction} {fmt_pct(abs(headline), loc)} ({basis}) in {when}",
+        title=f"Revenue is {direction} {fmt_pct(abs(headline), loc)} {basis} ({when})",
         summary=(
             f"Net revenue in the latest complete {label} ({latest.isoformat()}) was "
             f"{fmt_money(now, cur, loc)}: " + "; ".join(bits) + "."
