@@ -6,11 +6,11 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, created_at_column
+from app.db.base import Base, TenantMixin, created_at_column
 
 
-class RefreshToken(Base):
-    """A rotating refresh token; scoped through its user, never queried by tenant."""
+class RefreshToken(TenantMixin, Base):
+    """A rotating refresh token; tenant_id always equals its user's tenant_id."""
 
     __tablename__ = "refresh_tokens"
 

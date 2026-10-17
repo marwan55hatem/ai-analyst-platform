@@ -78,6 +78,6 @@ def deactivate_member(repo: UserRepository, actor: User, member_id: uuid.UUID) -
     if target.role == Role.owner and target.is_active:
         _ensure_other_owner_exists(repo, target)
     target.is_active = False
-    revoke_user_tokens(repo.session, target.id)
+    revoke_user_tokens(repo.session, repo.tenant_id, target.id)
     repo.session.commit()
     return target

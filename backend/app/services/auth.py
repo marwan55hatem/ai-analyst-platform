@@ -74,6 +74,7 @@ def _issue_session(db: Session, user: User) -> AuthSession:
     raw, token_hash = new_refresh_token()
     db.add(
         RefreshToken(
+            tenant_id=user.tenant_id,
             user_id=user.id,
             token_hash=token_hash,
             expires_at=_now() + timedelta(days=settings.refresh_token_days),
@@ -98,11 +99,15 @@ def login(db: Session, *, email: str, password: str) -> AuthSession:
     return _issue_session(db, user)
 
 
-def revoke_user_tokens(db: Session, user_id: uuid.UUID) -> None:
-    """Revoke every active refresh token of a user (does not commit)."""
+def revoke_user_tokens(db: Session, tenant_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    """Revoke every active refresh token of a user in a tenant (does not commit)."""
     db.execute(
         update(RefreshToken)
-        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .where(
+            RefreshToken.tenant_id == tenant_id,
+            RefreshToken.user_id == user_id,
+            RefreshToken.revoked_at.is_(None),
+        )
         .values(revoked_at=_now())
     )
 
@@ -114,7 +119,7 @@ def refresh(db: Session, raw_token: str) -> AuthSession:
     if token is None:
         raise UnauthorizedError("Invalid refresh token")
     if token.revoked_at is not None:
-        revoke_user_tokens(db, token.user_id)
+        revoke_user_tokens(db, token.tenant_id, token.user_id)
         db.commit()
         logger.warning("refresh_token_reuse_detected", user_id=str(token.user_id))
         raise UnauthorizedError("Invalid refresh token")

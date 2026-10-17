@@ -2,7 +2,7 @@ from collections.abc import Iterator
 
 import pytest
 from alembic import command
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 
 from tests.conftest import _base_url, alembic_config, drop_database, recreate_database
@@ -38,4 +38,41 @@ def test_migration_creates_schema_and_is_safe_to_run_twice(empty_url: URL) -> No
     command.downgrade(cfg, "base")
     engine = create_engine(empty_url)
     assert "users" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_migration_0002_backfills_refresh_token_tenant_id(empty_url: URL) -> None:
+    cfg = alembic_config(empty_url)
+    command.upgrade(cfg, "0001")
+    engine = create_engine(empty_url)
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO tenants (id, name) VALUES (gen_random_uuid(), 'T')"))
+        conn.execute(
+            text(
+                "INSERT INTO users (id, tenant_id, email, password_hash, full_name, role) "
+                "SELECT gen_random_uuid(), id, 'a@example.com', 'x', 'A', 'owner' FROM tenants"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at) "
+                "SELECT gen_random_uuid(), id, 'h', now() FROM users"
+            )
+        )
+    command.upgrade(cfg, "head")
+    with engine.connect() as conn:
+        mismatched = conn.execute(
+            text(
+                "SELECT count(*) FROM refresh_tokens r JOIN users u ON u.id = r.user_id "
+                "WHERE r.tenant_id IS DISTINCT FROM u.tenant_id"
+            )
+        ).scalar()
+        total = conn.execute(text("SELECT count(*) FROM refresh_tokens")).scalar()
+    assert total == 1
+    assert mismatched == 0
+    column = next(
+        c for c in inspect(engine).get_columns("refresh_tokens") if c["name"] == "tenant_id"
+    )
+    assert column["nullable"] is False
+    command.downgrade(cfg, "0001")
     engine.dispose()

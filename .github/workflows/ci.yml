@@ -27,6 +27,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+psycopg://analyst:analyst@localhost:5432/analyst
       REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else-0123456789
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
