@@ -1,0 +1,34 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# data
+data/
+storage/
+mlruns/
+mlflow-data/
+*.parquet
+*.duckdb
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# node
+node_modules/
+.next/
+
+# os / ide
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

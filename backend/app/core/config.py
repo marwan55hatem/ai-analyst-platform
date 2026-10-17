@@ -1,0 +1,36 @@
+"""Application settings loaded from environment variables."""
+
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime configuration; every field maps to a variable in .env.example."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_name: str = "AI Business Analyst Platform"
+    database_url: str = "postgresql+psycopg://analyst:analyst@localhost:5432/analyst"
+    redis_url: str = "redis://localhost:6379/0"
+    jwt_secret: str = "change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 30
+    refresh_token_days: int = 14
+    llm_provider: str = "none"
+    llm_api_key: str = ""
+    llm_model: str = ""
+    storage_dir: str = "./storage"
+    max_upload_mb: int = 50
+    mlflow_tracking_uri: str = "http://localhost:5000"
+    cors_origins: str = Field(default="http://localhost:3000")
+    email_provider: str = "none"
+    email_api_key: str = ""
+    log_level: str = "INFO"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return the cached application settings."""
+    return Settings()
