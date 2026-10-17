@@ -1,6 +1,6 @@
 COV_MIN ?= 85
 
-.PHONY: up down logs test lint migrate seed db-up
+.PHONY: up down logs test lint migrate seed db-up check-storage
 
 up:
 	docker compose up -d --build --wait
@@ -28,3 +28,8 @@ migrate:
 
 seed:
 	docker compose exec -T api python -m app.db.seed
+
+# Proves api and worker share STORAGE_DIR: api writes a file, worker reads it.
+check-storage:
+	docker compose exec -T api sh -c "echo shared-ok > /app/storage/.probe"
+	docker compose exec -T worker sh -c "cat /app/storage/.probe && rm /app/storage/.probe"

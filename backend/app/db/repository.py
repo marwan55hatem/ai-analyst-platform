@@ -1,13 +1,15 @@
 """Tenant-scoped repositories: every query is filtered by tenant_id automatically."""
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
+from app.models.dataset import Dataset, DatasetVersion
 from app.models.user import Role, User
 
 
@@ -75,3 +77,57 @@ class UserRepository(TenantRepository[User]):
         if lock:
             stmt = stmt.with_for_update()
         return list(self.session.scalars(stmt))
+
+
+class DatasetRepository(TenantRepository[Dataset]):
+    """Datasets of one tenant; soft-deleted rows are invisible unless asked for."""
+
+    model = Dataset
+
+    def _select(self) -> Select[Any]:
+        return super()._select().where(Dataset.deleted_at.is_(None))
+
+    def get_including_deleted(self, dataset_id: uuid.UUID) -> Dataset | None:
+        """Return a dataset of this tenant even if it was soft-deleted."""
+        stmt = select(Dataset).where(Dataset.tenant_id == self.tenant_id, Dataset.id == dataset_id)
+        return self.session.scalars(stmt).first()
+
+    def list_recent(self, *, limit: int = 100, offset: int = 0) -> list[Dataset]:
+        """Return the newest datasets first."""
+        stmt = self._select().order_by(Dataset.created_at.desc(), Dataset.id).limit(limit)
+        return list(self.session.scalars(stmt.offset(offset)))
+
+    def soft_delete(self, dataset: Dataset) -> None:
+        """Mark a dataset deleted (data files are kept)."""
+        dataset.deleted_at = datetime.now(UTC)
+
+
+class DatasetVersionRepository(TenantRepository[DatasetVersion]):
+    """Dataset versions of one tenant."""
+
+    model = DatasetVersion
+
+    def for_dataset(self, dataset_id: uuid.UUID) -> list[DatasetVersion]:
+        """Return all versions of a dataset, newest first."""
+        stmt = (
+            self._select()
+            .where(DatasetVersion.dataset_id == dataset_id)
+            .order_by(DatasetVersion.version.desc())
+        )
+        return list(self.session.scalars(stmt))
+
+    def next_version_number(self, dataset_id: uuid.UUID) -> int:
+        """Return max(version) + 1 for a dataset (call with the dataset row locked)."""
+        stmt = select(func.max(DatasetVersion.version)).where(
+            DatasetVersion.tenant_id == self.tenant_id, DatasetVersion.dataset_id == dataset_id
+        )
+        return (self.session.scalar(stmt) or 0) + 1
+
+    def get_for_query(self, version_id: uuid.UUID) -> DatasetVersion | None:
+        """Return a version only if its dataset is not deleted."""
+        stmt = (
+            self._select()
+            .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+            .where(DatasetVersion.id == version_id, Dataset.deleted_at.is_(None))
+        )
+        return self.session.scalars(stmt).first()

@@ -19,6 +19,10 @@ dependencies = [
     "pyjwt>=2.15.1",
     "argon2-cffi>=25.1.0",
     "email-validator>=2.3.0",
+    "python-multipart>=0.0.32",
+    "openpyxl>=3.1.5",
+    "sqlglot>=30.23.0",
+    "charset-normalizer>=3.5.2",
 ]
 
 [dependency-groups]
@@ -29,6 +33,8 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
+    "pyyaml",
+    "types-pyyaml",
 ]
 
 [build-system]
@@ -62,7 +68,7 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -71,3 +77,4 @@ disable_error_code = ["untyped-decorator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: generates a large file at runtime (still part of make test)"]

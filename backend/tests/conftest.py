@@ -1,6 +1,7 @@
 """Shared fixtures: a real Postgres database built by Alembic migrations."""
 
 import os
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -25,6 +26,7 @@ os.environ.update(
         "COOKIE_SECURE": "true",
         "RATE_LIMIT_ENABLED": "false",
         "CORS_ORIGINS": "http://localhost:3000",
+        "STORAGE_DIR": tempfile.mkdtemp(prefix="analyst-test-storage-"),
     }
 )
 
@@ -35,6 +37,10 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.db.session import get_engine, get_sessionmaker  # noqa: E402
 from app.main import app  # noqa: E402
+from app.workers.celery_app import celery_app  # noqa: E402
+
+# Tasks run inline in tests (no broker); failures are recorded by the task itself.
+celery_app.conf.task_always_eager = True
 
 
 def recreate_database(name: str) -> None:
@@ -76,7 +82,11 @@ def database() -> Iterator[URL]:
 def db(database: URL) -> Iterator[Session]:
     """Empty all tables, then provide a session for direct DB assertions."""
     with get_engine().begin() as conn:
-        conn.execute(text("TRUNCATE tenants, users, refresh_tokens RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text(
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions RESTART IDENTITY CASCADE"
+            )
+        )
     with get_sessionmaker()() as session:
         yield session
 
