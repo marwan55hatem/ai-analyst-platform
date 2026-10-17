@@ -32,3 +32,4 @@ node_modules/
 Thumbs.db
 .idea/
 .vscode/
+coverage.json

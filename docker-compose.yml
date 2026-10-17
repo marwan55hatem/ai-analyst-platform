@@ -7,6 +7,8 @@ x-backend: &backend
     REDIS_URL: redis://redis:6379/0
     MLFLOW_TRACKING_URI: http://mlflow:5000
     JWT_SECRET: ${JWT_SECRET:-change-me}
+    COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
   depends_on:
     postgres:

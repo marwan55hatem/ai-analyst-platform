@@ -55,7 +55,7 @@ insights, model_runs, conversations, messages, reports.
 
 ## Progress log (append one line after each finished step)
 - [x] Step 0 bootstrap — monorepo skeleton: FastAPI health, Celery ping, compose stack, Makefile, CI, pre-commit
-- [ ] Step 1 backend core and auth
+- [x] Step 1 backend core and auth — tenant-isolated auth (argon2, JWT + rotating refresh cookie), team roles, Redis rate limiting, error envelope, Alembic schema, refresh tokens scoped by tenant, 64 tests with per-package coverage gate
 - [ ] Step 2 upload and storage
 - [ ] Step 3 profiling and cleaning
 - [ ] Step 4 analytics pipeline

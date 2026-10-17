@@ -21,6 +21,10 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = request_id
         structlog.get_logger().info(
-            "request", method=request.method, path=request.url.path, status=response.status_code
+            "request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            tenant_id=getattr(request.state, "tenant_id", None),
         )
         return response

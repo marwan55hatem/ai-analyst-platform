@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Runtime configuration; every field maps to a variable in .env.example."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     app_name: str = "AI Business Analyst Platform"
     database_url: str = "postgresql+psycopg://analyst:analyst@localhost:5432/analyst"
@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     email_provider: str = "none"
     email_api_key: str = ""
     log_level: str = "INFO"
+    cookie_secure: bool = True
+    rate_limit_enabled: bool = True
+
+    def ensure_production_safe(self) -> None:
+        """Refuse to run with the placeholder or a short JWT secret."""
+        if self.jwt_secret == "change-me" or len(self.jwt_secret) < 32:
+            raise ValueError(
+                "JWT_SECRET must be set to a random value of at least 32 characters (see .env)"
+            )
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Return CORS_ORIGINS as a list of non-empty origins."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 @lru_cache
