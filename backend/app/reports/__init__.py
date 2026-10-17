@@ -1,0 +1,1 @@
+"""Automated analyst report generation."""
