@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     max_upload_mb: int = 50
     max_rows: int = 2_000_000
     query_timeout_s: float = 30.0
+    ingest_stuck_minutes: int = 30
     query_memory_mb: int = 512
     query_threads: int = 2
     mlflow_tracking_uri: str = "http://localhost:5000"

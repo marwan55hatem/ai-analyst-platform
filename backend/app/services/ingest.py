@@ -7,10 +7,13 @@ import re
 import unicodedata
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 from charset_normalizer import from_bytes
@@ -21,6 +24,19 @@ ALL_STRINGS_WARNING = (
     "Column types could not be inferred consistently, so every column was stored as text."
 )
 SAMPLE_BYTES = 1024 * 1024
+# Types a text column may be promoted to, most specific first (a column gets the first
+# one that every value parses as).
+_CSV_CANDIDATES: tuple[pa.DataType, ...] = (
+    pa.int64(),
+    pa.float64(),
+    pa.bool_(),
+    pa.date32(),
+    pa.timestamp("us"),
+)
+# RE2 pattern: a value that looks like a number or an ISO date (no backslashes needed).
+_TYPED_LOOK = (
+    "^ *[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)? *$|^[0-9]{4}-[0-9]{2}-[0-9]{2}"
+)
 CSV_BLOCK_BYTES = 1024 * 1024
 XLSX_BATCH_ROWS = 10_000
 ROW_GROUP_ROWS = 100_000
@@ -182,6 +198,87 @@ def _open_csv(
     )
 
 
+def _plan_csv_types(
+    src: Path, options: tuple[str, str, int], ncols: int
+) -> tuple[list[pa.DataType], list[bool]]:
+    """Scan the file as text and pick, per column, the most specific type every value fits.
+
+    Returns the chosen types and, per column, whether any value looked like a number or date
+    (used to report columns that mix such values with other text).
+    """
+    encoding, delimiter, skip = options
+    viable = [list(_CSV_CANDIDATES) for _ in range(ncols)]
+    seen = [False] * ncols
+    typed_look = [False] * ncols
+    for batch in _iter_batches(_open_csv(src, encoding, delimiter, (skip, ncols))):
+        for i in range(ncols):
+            column = batch.column(i)
+            if column.null_count == len(column):
+                continue
+            seen[i] = True
+            if not typed_look[i]:
+                typed_look[i] = bool(pc.any(pc.match_substring_regex(column, _TYPED_LOOK)).as_py())
+            for candidate in list(viable[i]):
+                try:
+                    pc.cast(column, candidate)
+                except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+                    viable[i].remove(candidate)
+    types = [v[0] if (v and seen[i]) else pa.string() for i, v in enumerate(viable)]
+    return types, typed_look
+
+
+def _text_fallback_warnings(
+    originals: list[str], types: list[pa.DataType], typed_look: list[bool]
+) -> list[str]:
+    """One warning per column that mixes numbers/dates with other text and became text."""
+    return [
+        f"Column '{name}' mixes numbers or dates with other text, so it was stored as text."
+        for name, kind, looked in zip(originals, types, typed_look, strict=True)
+        if looked and pa.types.is_string(kind)
+    ]
+
+
+def _cast_batches(
+    reader: pacsv.CSVStreamingReader, types: list[pa.DataType]
+) -> Iterator[pa.RecordBatch]:
+    for batch in _iter_batches(reader):
+        arrays = [pc.cast(batch.column(i), kind) for i, kind in enumerate(types)]
+        yield pa.RecordBatch.from_arrays(arrays, names=batch.schema.names)
+
+
+def _csv_per_column_fallback(
+    src: Path,
+    dst: Path,
+    options: tuple[str, str, int],
+    originals: list[str],
+    names: list[str],
+    max_rows: int,
+) -> tuple[int, list[str]]:
+    """Re-read a CSV whose types could not be inferred up front.
+
+    Each column is promoted independently (int -> float, then bool, date, timestamp); only a
+    column that cannot be parsed as any of those becomes text. If even that fails the whole
+    file is stored as text as a last resort.
+    """
+    encoding, delimiter, skip = options
+    ncols = len(originals)
+    try:
+        types, typed_look = _plan_csv_types(src, options, ncols)
+        reader = _open_csv(src, encoding, delimiter, (skip, ncols))
+        rows = _write_batches(_cast_batches(reader, types), dst, names, max_rows)
+        return rows, _text_fallback_warnings(originals, types, typed_look)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError):
+        _tmp(dst).unlink(missing_ok=True)
+    try:
+        reader = _open_csv(src, encoding, delimiter, (skip, ncols))
+        return _write_batches(_iter_batches(reader), dst, names, max_rows), [ALL_STRINGS_WARNING]
+    except pa.ArrowInvalid as exc:
+        _tmp(dst).unlink(missing_ok=True)
+        raise IngestError(
+            f"The file could not be parsed (inconsistent number of columns?): {exc}"
+        ) from exc
+
+
 def _ingest_csv(src: Path, dst: Path, ext: str, max_rows: int) -> IngestResult:
     with src.open("rb") as handle:
         sample = handle.read(SAMPLE_BYTES)
@@ -211,15 +308,10 @@ def _ingest_csv(src: Path, dst: Path, ext: str, max_rows: int) -> IngestResult:
         )
         originals = [h.lstrip("\ufeff") for h in header]
         names = normalize_columns(originals)
-        warnings.append(ALL_STRINGS_WARNING)
-        try:
-            reader = _open_csv(src, encoding, delimiter, (leading_blank + 1, len(originals)))
-            rows = _write_batches(_iter_batches(reader), dst, names, max_rows)
-        except pa.ArrowInvalid as exc:
-            _tmp(dst).unlink(missing_ok=True)
-            raise IngestError(
-                f"The file could not be parsed (inconsistent number of columns?): {exc}"
-            ) from exc
+        skip = leading_blank + 1
+        rows, warnings = _csv_per_column_fallback(
+            src, dst, (encoding, delimiter, skip), originals, names, max_rows
+        )
     except UnicodeDecodeError as exc:
         _tmp(dst).unlink(missing_ok=True)
         raise IngestError(f"The file is not valid {encoding} text.") from exc
@@ -278,10 +370,115 @@ def _sheet_rows(
     raise IngestError("The selected sheet is empty or has no header row.")
 
 
+def _classify(value: Any) -> str | None:
+    """Return the kind of a cell value (None for empty cells and blank text)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float | Decimal):
+        return "float"
+    if isinstance(value, datetime):
+        return "datetime"
+    if isinstance(value, date):
+        return "date"
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text[:1] in "0123456789+-.":
+            try:
+                float(text)
+            except ValueError:
+                return "str"
+            return "numstr"
+        return "str"
+    return "str"
+
+
+def _resolve_xlsx_type(kinds: set[str]) -> pa.DataType:
+    """Pick the column type for the set of cell kinds seen in it."""
+    numeric = kinds & {"int", "float"}
+    if kinds and kinds <= {"int"}:
+        return pa.int64()
+    if numeric and kinds <= {"int", "float", "numstr"}:
+        return pa.float64()
+    if kinds == {"bool"}:
+        return pa.bool_()
+    if kinds == {"date"}:
+        return pa.date32()
+    if kinds and kinds <= {"date", "datetime"}:
+        return pa.timestamp("us")
+    return pa.string()
+
+
+def _convert_cell(value: Any, target: pa.DataType) -> Any:
+    """Convert a cell to the planned column type (every value is known to fit)."""
+    if pa.types.is_string(target):
+        return _cell_text(value)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if pa.types.is_integer(target):
+        return int(value)
+    if pa.types.is_floating(target):
+        return float(value.strip() if isinstance(value, str) else value)
+    if pa.types.is_timestamp(target):
+        return value if isinstance(value, datetime) else datetime.combine(value, time())
+    return value
+
+
+def _plan_xlsx_types(
+    src: Path, sheet: str | None, ncols: int
+) -> tuple[list[pa.DataType], list[int]]:
+    """Scan the sheet and choose each column's type independently.
+
+    Also returns the indexes of columns that mix numbers/dates with other text
+    (they end up as text); the caller maps these to warnings.
+    """
+    kinds: list[set[str]] = [set() for _ in range(ncols)]
+    workbook = _open_workbook(src)
+    try:
+        _, _, rows = _sheet_rows(workbook, sheet)
+        for row in rows:
+            for i in range(ncols):
+                kind = _classify(row[i] if i < len(row) else None)
+                if kind:
+                    kinds[i].add(kind)
+    finally:
+        workbook.close()
+    types = [_resolve_xlsx_type(k) for k in kinds]
+    mixed = [
+        i
+        for i, (k, t) in enumerate(zip(kinds, types, strict=True))
+        if pa.types.is_string(t) and "str" in k and k - {"str"}
+    ]
+    return types, mixed
+
+
+def _strict_array(values: list[Any], target: pa.DataType) -> pa.Array:
+    """Build an Arrow array, refusing to truncate decimals into an integer column.
+
+    pyarrow silently turns 2.5 into 2 when asked for int64, which would corrupt data.
+    """
+    if pa.types.is_integer(target) and any(isinstance(v, float | Decimal) for v in values):
+        raise pa.ArrowInvalid("decimal value in an integer column")
+    return pa.array(values, type=target)
+
+
 def _xlsx_batches(
-    rows: Iterator[tuple[Any, ...]], ncols: int, *, strings_only: bool
+    rows: Iterator[tuple[Any, ...]],
+    ncols: int,
+    *,
+    types: list[pa.DataType] | None = None,
+    strings_only: bool = False,
 ) -> Iterator[pa.RecordBatch]:
-    """Yield batches; types come from the first batch and later mismatches raise Arrow errors."""
+    """Yield batches of XLSX_BATCH_ROWS rows.
+
+    Without `types` the column types come from the first batch and a later mismatch raises an
+    Arrow error (the caller then plans types per column); with `types` every cell is converted.
+    """
     chunk: list[list[Any]] = []
     schema: pa.Schema | None = None
     labels = [f"c{i}" for i in range(ncols)]
@@ -290,10 +487,15 @@ def _xlsx_batches(
         columns = [[r[i] for r in chunk] for i in range(ncols)]
         if strings_only:
             arrays = [pa.array([_cell_text(v) for v in col], type=pa.string()) for col in columns]
+        elif types is not None:
+            arrays = [
+                pa.array([_convert_cell(v, types[i]) for v in col], type=types[i])
+                for i, col in enumerate(columns)
+            ]
         elif schema is None:
             arrays = [pa.array(col) for col in columns]
         else:
-            arrays = [pa.array(col, type=schema.field(i).type) for i, col in enumerate(columns)]
+            arrays = [_strict_array(col, schema.field(i).type) for i, col in enumerate(columns)]
         return pa.RecordBatch.from_arrays(arrays, names=labels)
 
     for row in rows:
@@ -310,34 +512,61 @@ def _xlsx_batches(
         yield build()
 
 
+_XLSX_CONVERSION_ERRORS = (pa.ArrowInvalid, pa.ArrowTypeError, ValueError, OverflowError)
+
+
+def _convert_xlsx(
+    src: Path,
+    dst: Path,
+    sheet: str | None,
+    max_rows: int,
+    *,
+    types: list[pa.DataType] | None = None,
+    strings_only: bool = False,
+) -> int:
+    """Run one conversion attempt and return the row count."""
+    workbook = _open_workbook(src)
+    try:
+        _, originals, rows = _sheet_rows(workbook, sheet)
+        names = normalize_columns(originals)
+        batches = _xlsx_batches(rows, len(originals), types=types, strings_only=strings_only)
+        return _write_batches(batches, dst, names, max_rows)
+    finally:
+        workbook.close()
+
+
 def _ingest_xlsx(src: Path, dst: Path, sheet: str | None, max_rows: int) -> IngestResult:
+    workbook = _open_workbook(src)
+    try:
+        sheet_name, originals, _ = _sheet_rows(workbook, sheet)
+    finally:
+        workbook.close()
+    names = normalize_columns(originals)
     warnings: list[str] = []
-    for strings_only in (False, True):
-        workbook = _open_workbook(src)
+    try:
+        count = _convert_xlsx(src, dst, sheet_name, max_rows)
+    except _XLSX_CONVERSION_ERRORS:
         try:
-            sheet_name, originals, rows = _sheet_rows(workbook, sheet)
-            names = normalize_columns(originals)
-            batches = _xlsx_batches(rows, len(originals), strings_only=strings_only)
-            count = _write_batches(batches, dst, names, max_rows)
-        except (pa.ArrowInvalid, pa.ArrowTypeError) as exc:
-            _tmp(dst).unlink(missing_ok=True)
-            if strings_only:
+            types, mixed = _plan_xlsx_types(src, sheet_name, len(originals))
+            count = _convert_xlsx(src, dst, sheet_name, max_rows, types=types)
+            warnings = [
+                f"Column '{originals[i]}' mixes numbers or dates with other text, "
+                "so it was stored as text."
+                for i in mixed
+            ]
+        except _XLSX_CONVERSION_ERRORS:
+            try:  # last resort: everything as text
+                count = _convert_xlsx(src, dst, sheet_name, max_rows, strings_only=True)
+            except _XLSX_CONVERSION_ERRORS as exc:
                 raise IngestError(f"The sheet could not be converted: {exc}") from exc
-            warnings.append(ALL_STRINGS_WARNING)
-            continue
-        except IngestError:
-            _tmp(dst).unlink(missing_ok=True)
-            raise
-        finally:
-            workbook.close()
-        return IngestResult(
-            row_count=count,
-            col_count=len(originals),
-            column_map=_column_map(originals, names),
-            sheet=sheet_name,
-            warnings=warnings,
-        )
-    raise IngestError("The sheet could not be converted.")  # pragma: no cover
+            warnings = [ALL_STRINGS_WARNING]
+    return IngestResult(
+        row_count=count,
+        col_count=len(originals),
+        column_map=_column_map(originals, names),
+        sheet=sheet_name,
+        warnings=warnings,
+    )
 
 
 def ingest_file(
@@ -345,8 +574,9 @@ def ingest_file(
 ) -> IngestResult:
     """Convert `src` to Parquet at `dst` and return what was found.
 
-    Memory use is bounded by the batch size, not the file size. A type clash in a
-    later batch restarts the file with every column as text instead of failing.
+    Memory use is bounded by the batch size, not the file size. Types are inferred from the
+    first rows; if a later value does not fit, the file is re-read and each column is promoted
+    on its own (int -> float, ...), and only a column that cannot be parsed becomes text.
     """
     if ext == "xlsx":
         return _ingest_xlsx(src, dst, sheet, max_rows)

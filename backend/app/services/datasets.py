@@ -1,10 +1,12 @@
 """Dataset use cases: create, add version, delete, and the ingestion job."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import BinaryIO
 
 import structlog
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -170,6 +172,7 @@ def run_ingest(tenant_id: uuid.UUID, version_id: uuid.UUID) -> None:
         if dataset is None:
             return
         version.status = VersionStatus.processing.value
+        version.processing_started_at = datetime.now(UTC)
         if dataset.current_version_id is None:
             dataset.status = VersionStatus.processing.value
         db.commit()
@@ -221,3 +224,36 @@ def _fail(db: Session, dataset: Dataset, version: DatasetVersion, message: str) 
     if dataset.current_version_id is None:
         dataset.status = VersionStatus.failed.value
     db.commit()
+
+
+STUCK_ERROR = "Processing timed out. Please upload again."
+
+
+def fail_stuck_ingestions(
+    db: Session, *, now: datetime | None = None, stuck_minutes: int | None = None
+) -> int:
+    """Mark versions that have been `processing` too long as failed; return how many.
+
+    This is a maintenance job that runs across all tenants (it is not request-scoped), so it
+    queries the table directly. Versions without a start time (rows from before the column
+    existed) fall back to created_at.
+    """
+    minutes = get_settings().ingest_stuck_minutes if stuck_minutes is None else stuck_minutes
+    cutoff = (now or datetime.now(UTC)) - timedelta(minutes=minutes)
+    started = func.coalesce(DatasetVersion.processing_started_at, DatasetVersion.created_at)
+    stuck = db.scalars(
+        select(DatasetVersion).where(
+            DatasetVersion.status == VersionStatus.processing.value, started < cutoff
+        )
+    ).all()
+    for version in stuck:
+        version.status = VersionStatus.failed.value
+        version.error = STUCK_ERROR
+        dataset = db.get(Dataset, version.dataset_id)
+        if dataset is not None and dataset.current_version_id is None:
+            dataset.status = VersionStatus.failed.value
+        logger.warning(
+            "ingest_timed_out", version_id=str(version.id), tenant_id=str(version.tenant_id)
+        )
+    db.commit()
+    return len(stuck)

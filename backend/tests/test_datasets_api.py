@@ -334,47 +334,6 @@ def test_queue_failure_marks_version_failed(
     assert "could not be started" in body["versions"][0]["error"]
 
 
-def test_all_strings_fallback_when_later_rows_break_type_inference(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    owner = register(client)
-    monkeypatch.setattr(ingest, "CSV_BLOCK_BYTES", 64 * 1024)
-    rows = [[i, f"{i}.5", f"name{i}"] for i in range(20_000)]
-    rows[5000][1] = '"$1,200"'
-    body = upload_ready(client, owner, csv_bytes(rows, ["id", "price", "name"]), "mixed.csv")
-    version = body["versions"][0]
-    assert version["row_count"] == 20_000
-    assert version["warnings"] == [ingest.ALL_STRINGS_WARNING]
-    preview = _preview(client, owner, body["id"], 3)
-    assert {c["type"] for c in preview["columns"]} == {"VARCHAR"}
-    assert preview["rows"][0] == ["0", "0.5", "name0"]
-    # The offending value survived exactly as written.
-    from app.db.session import get_sessionmaker
-    from app.services.query import SafeQueryService
-
-    with get_sessionmaker()() as session:
-        result = SafeQueryService(session).run(
-            uuid.UUID(owner.tenant_id),
-            uuid.UUID(version["id"]),
-            "SELECT id, price FROM data WHERE price = '$1,200'",
-        )
-    assert result.rows == [["5000", "$1,200"]]
-
-
-def test_all_strings_fallback_for_excel(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    owner = register(client)
-    monkeypatch.setattr(ingest, "XLSX_BATCH_ROWS", 500)
-    rows: list[list[Any]] = [["id", "amount"]] + [[i, float(i)] for i in range(3000)]
-    rows[2501][1] = "$1,200"
-    body = upload_ready(client, owner, xlsx_bytes({"Data": rows}), "mixed.xlsx")
-    version = body["versions"][0]
-    assert version["row_count"] == 3000
-    assert version["warnings"] == [ingest.ALL_STRINGS_WARNING]
-    assert {c["type"] for c in _preview(client, owner, body["id"], 2)["columns"]} == {"VARCHAR"}
-
-
 def test_list_and_get_include_latest_version(client: TestClient) -> None:
     owner = register(client)
     made = upload_ready(client, owner, csv_bytes([[1]], ["a"]), "l.csv")

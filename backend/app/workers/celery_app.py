@@ -17,5 +17,10 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
-    beat_schedule={},  # placeholder: periodic tasks are registered here
+    beat_schedule={
+        "fail-stuck-ingestions": {
+            "task": "app.workers.tasks.fail_stuck_ingestions",
+            "schedule": 600.0,  # every 10 minutes
+        },
+    },
 )

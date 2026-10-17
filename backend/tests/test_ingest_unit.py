@@ -89,7 +89,10 @@ def test_leading_blank_lines_and_fallback_header(
     src = tmp_path / "lead.csv"
     src.write_text("\n".join(rows) + "\n")
     result = ingest_file(src, tmp_path / "lead.parquet", "csv", max_rows=10**6)
-    assert result.row_count == 20001 and result.warnings == [ingest.ALL_STRINGS_WARNING]
+    assert result.row_count == 20001
+    assert result.warnings == [
+        "Column 'val' mixes numbers or dates with other text, so it was stored as text."
+    ]
     assert [m["normalized"] for m in result.column_map] == ["id", "val"]
     assert pq.read_table(tmp_path / "lead.parquet").num_rows == 20001
 

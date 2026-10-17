@@ -82,4 +82,7 @@ class DatasetVersion(TenantMixin, Base):
     delimiter: Mapped[str | None] = mapped_column(String(5), nullable=True)
     column_map: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
     warnings: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    processing_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = created_at_column()
