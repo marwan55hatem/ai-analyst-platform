@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import ForbiddenError, UnauthorizedError
 from app.core.rate_limit import RateLimiter, get_rate_limiter
 from app.core.security import decode_access_token
-from app.db.repository import UserRepository
+from app.db.repository import DatasetRepository, UserRepository
 from app.db.session import get_db
 from app.models.user import Role, User
 
@@ -50,6 +50,14 @@ def get_user_repo(user: CurrentUser, db: DbSession) -> UserRepository:
 
 
 UserRepo = Annotated[UserRepository, Depends(get_user_repo)]
+
+
+def get_dataset_repo(user: CurrentUser, db: DbSession) -> DatasetRepository:
+    """Return a dataset repository bound to the caller's tenant."""
+    return DatasetRepository(db, user.tenant_id)
+
+
+DatasetRepo = Annotated[DatasetRepository, Depends(get_dataset_repo)]
 
 
 def require_role(*roles: Role) -> Callable[[User], User]:

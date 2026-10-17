@@ -83,6 +83,20 @@ class UnprocessableError(AppError):
     code = "unprocessable"
 
 
+class PayloadTooLargeError(AppError):
+    """Upload exceeds the configured size limit (413)."""
+
+    status_code = 413
+    code = "payload_too_large"
+
+
+class UnsupportedMediaError(AppError):
+    """File type not allowed or content does not match its extension (415)."""
+
+    status_code = 415
+    code = "unsupported_media_type"
+
+
 class RateLimitedError(AppError):
     """Too many requests (429)."""
 
@@ -114,7 +128,14 @@ async def _validation_error(_: Request, exc: Exception) -> JSONResponse:
 
 async def _http_error(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, StarletteHTTPException)
-    codes = {401: "unauthorized", 403: "forbidden", 404: "not_found", 405: "method_not_allowed"}
+    codes = {
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        405: "method_not_allowed",
+        413: "payload_too_large",
+        415: "unsupported_media_type",
+    }
     code = codes.get(exc.status_code, "http_error")
     return _response(exc.status_code, code, str(exc.detail), None, exc.headers)
 

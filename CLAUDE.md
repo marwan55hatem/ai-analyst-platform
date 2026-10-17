@@ -56,7 +56,7 @@ insights, model_runs, conversations, messages, reports.
 ## Progress log (append one line after each finished step)
 - [x] Step 0 bootstrap — monorepo skeleton: FastAPI health, Celery ping, compose stack, Makefile, CI, pre-commit
 - [x] Step 1 backend core and auth — tenant-isolated auth (argon2, JWT + rotating refresh cookie), team roles, Redis rate limiting, error envelope, Alembic schema, refresh tokens scoped by tenant, 64 tests with per-package coverage gate
-- [ ] Step 2 upload and storage
+- [x] Step 2 datasets — CSV/TSV/XLSX upload to tenant-scoped storage, streaming Parquet ingestion via Celery (all-strings fallback), versions, soft delete, and a locked-down SafeQueryService (sqlglot + DuckDB lockdown, 60+ abuse tests), 293 tests
 - [ ] Step 3 profiling and cleaning
 - [ ] Step 4 analytics pipeline
 - [ ] Step 5 forecasting

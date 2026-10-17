@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     llm_model: str = ""
     storage_dir: str = "./storage"
     max_upload_mb: int = 50
+    max_rows: int = 2_000_000
+    query_timeout_s: float = 30.0
+    query_memory_mb: int = 512
+    query_threads: int = 2
     mlflow_tracking_uri: str = "http://localhost:5000"
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"

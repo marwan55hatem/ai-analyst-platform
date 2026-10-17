@@ -9,19 +9,40 @@ from sqlalchemy.orm import Session
 from app.db.repository import UserRepository
 from app.main import app
 from app.models.user import Role
+from tests.dataset_helpers import sample, upload_ready
 from tests.helpers import API, add_member, register
 
 # Tenant-scoped routes that take a resource id. A new such route must be added here
 # (test_every_resource_route_is_covered fails otherwise).
-RESOURCE_ROUTES = {
+TEAM_ROUTES = {
     ("PUT", "/api/v1/team/members/{member_id}/role"),
     ("POST", "/api/v1/team/members/{member_id}/deactivate"),
+}
+DATASET_ROUTES = {
+    ("GET", "/api/v1/datasets/{dataset_id}"),
+    ("DELETE", "/api/v1/datasets/{dataset_id}"),
+    ("POST", "/api/v1/datasets/{dataset_id}/versions"),
+    ("GET", "/api/v1/datasets/{dataset_id}/sheets"),
+    ("GET", "/api/v1/datasets/{dataset_id}/preview"),
+}
+RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES
+# Routes that work without a token; every other route must answer 401 anonymously.
+PUBLIC_ROUTES = {
+    ("GET", "/api/v1/health"),
+    ("POST", "/api/v1/auth/register"),
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/refresh"),
+    ("POST", "/api/v1/auth/logout"),
 }
 
 
 def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -> int:
-    body = {"role": "member"} if path.endswith("/role") else None
-    return client.request(method, path, headers=headers, json=body).status_code
+    if path.endswith("/role"):
+        return client.request(method, path, headers=headers, json={"role": "member"}).status_code
+    if path.endswith("/versions"):
+        files = {"file": ("x.csv", b"a,b\n1,2\n")}
+        return client.request(method, path, headers=headers, files=files).status_code
+    return client.request(method, path, headers=headers).status_code
 
 
 def test_tenant_b_gets_404_for_every_tenant_a_resource(client: TestClient) -> None:
@@ -30,7 +51,7 @@ def test_tenant_b_gets_404_for_every_tenant_a_resource(client: TestClient) -> No
     member_a = add_member(client, owner_a, "member")
     admin_a = add_member(client, owner_a, "admin")
 
-    for method, template in sorted(RESOURCE_ROUTES):
+    for method, template in sorted(TEAM_ROUTES):
         for victim in (owner_a, member_a, admin_a):
             path = template.replace("{member_id}", victim.user_id)
             assert _call(client, method, path, owner_b.headers) == 404, (method, path)
@@ -42,6 +63,52 @@ def test_tenant_b_gets_404_for_every_tenant_a_resource(client: TestClient) -> No
         member_a.email: ("member", True),
         admin_a.email: ("admin", True),
     }
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_dataset_route(client: TestClient) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    made = upload_ready(client, owner_a, sample("retail_two_sheets.xlsx"), "book.xlsx")
+    dataset_id = made["id"]
+
+    for method, template in sorted(DATASET_ROUTES):
+        path = template.replace("{dataset_id}", dataset_id)
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+
+    # Tenant A's dataset is untouched and tenant B sees nothing.
+    detail = client.get(f"{API}/datasets/{dataset_id}", headers=owner_a.headers).json()
+    assert detail["status"] == "ready" and len(detail["versions"]) == 1
+    assert client.get(f"{API}/datasets", headers=owner_b.headers).json() == []
+    assert len(client.get(f"{API}/datasets", headers=owner_a.headers).json()) == 1
+
+
+def test_query_layer_refuses_other_tenants_version(client: TestClient, db: Session) -> None:
+    import uuid
+
+    from app.core.errors import NotFoundError
+    from app.services.query import SafeQueryService
+
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    made = upload_ready(client, owner_a, sample("retail_clean.csv"), "a.csv")
+    version_id = uuid.UUID(made["versions"][0]["id"])
+    SafeQueryService(db).run(uuid.UUID(owner_a.tenant_id), version_id, "SELECT 1")
+    try:
+        SafeQueryService(db).run(uuid.UUID(owner_b.tenant_id), version_id, "SELECT 1")
+    except NotFoundError:
+        return
+    raise AssertionError("tenant B must not reach tenant A's version")
+
+
+def test_every_non_public_route_requires_authentication(client: TestClient) -> None:
+    for path, operations in app.openapi()["paths"].items():
+        concrete = re.sub(r"\{\w+\}", "00000000-0000-0000-0000-000000000000", path)
+        for method in operations:
+            if (method.upper(), path) in PUBLIC_ROUTES:
+                continue
+            assert client.request(method, concrete).status_code == 401, (method, path)
 
 
 def test_lists_only_contain_own_tenant(client: TestClient) -> None:
@@ -117,5 +184,5 @@ def test_no_endpoint_accepts_tenant_id_from_the_client() -> None:
                 assert "tenant" not in param["name"].lower(), (method, path)
             body = operation.get("requestBody")
             if body:
-                schema = body["content"]["application/json"]["schema"]
-                assert "tenant_id" not in _walk(schema, components), (method, path)
+                for media in body["content"].values():  # json and multipart/form-data
+                    assert "tenant_id" not in _walk(media["schema"], components), (method, path)
