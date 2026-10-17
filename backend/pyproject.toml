@@ -23,6 +23,7 @@ dependencies = [
     "openpyxl>=3.1.5",
     "sqlglot>=30.23.0",
     "charset-normalizer>=3.5.2",
+    "statsmodels>=0.15.0",
 ]
 
 [dependency-groups]
@@ -68,7 +69,7 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

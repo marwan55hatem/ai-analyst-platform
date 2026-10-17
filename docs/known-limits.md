@@ -20,3 +20,10 @@ Accepted trade-offs of the current backend. Each has an owner step.
 | Percent text becomes a fraction | `15%` and `١٥٪` are read as 0.15 when a text column is cast to numbers. | Kept on purpose. |
 | Ambiguous dd/mm dates | When no value proves the order (all numbers up to 12), the cleaning plan assumes day-first, marks the fix `high` risk and never recommends it; the user picks `dayfirst` or `monthfirst`. | Kept on purpose. |
 | LLM role refinement has no real provider yet | `LLM_PROVIDER=fake` is the only working value besides `none`; roles stay rule-based until Step 8 adds providers. | Step 8. |
+| Analysis loads role columns into memory | Each run loads only the role-mapped columns of the version into a DuckDB table limited by `ANALYSIS_MEMORY_MB` (512 MB; 256 MB in compose) with no spilling; a file near the 2,000,000-row limit with many role columns can exceed it and the run fails with a friendly error. | Step 15 (deployment): size the worker. |
+| Evidence SQL runs on a typed projection | Insight SQL runs on the typed role columns (text dates and amounts are converted first). On a file whose dates or amounts are stored as text, the stored SQL returns different results through `SafeQueryService` until the cleaning plan has been applied. | Step 8: the agent re-types columns. |
+| No currency detection | Insight text shows no currency unless `currency` is set in the run config; insight text is English with locale-formatted numbers only. | Step 8/10 (LLM polish, reports). |
+| Seasonality needs history | STL needs 24 months; 12-23 months use a plain monthly average (low confidence); under 12 months no seasonality insight. Weekday pattern needs 4+ weeks of daily data. | Kept on purpose. |
+| Earlier runs lose their insights | A re-run (or auto-run) replaces the version's insights, so older runs of the same version keep their status but list no insights. | Kept on purpose. |
+| Role overrides do not re-run analysis | Changing a column's role does not queue an analysis; call `POST /datasets/{id}/analyze`. | Step 11 (frontend prompts a re-run). |
+

@@ -25,6 +25,7 @@ os.environ.update(
         "ACCESS_TOKEN_MINUTES": "30",
         "COOKIE_SECURE": "true",
         "RATE_LIMIT_ENABLED": "false",
+        "AUTO_ANALYZE": "false",
         "CORS_ORIGINS": "http://localhost:3000",
         "STORAGE_DIR": tempfile.mkdtemp(prefix="analyst-test-storage-"),
     }
@@ -84,7 +85,7 @@ def db(database: URL) -> Iterator[Session]:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs RESTART IDENTITY CASCADE"
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights RESTART IDENTITY CASCADE"
             )
         )
     with get_sessionmaker()() as session:

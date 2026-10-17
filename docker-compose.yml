@@ -16,6 +16,8 @@ x-backend: &backend
     QUERY_MEMORY_MB: ${QUERY_MEMORY_MB:-256}
     QUERY_THREADS: ${QUERY_THREADS:-2}
     PROFILE_MEMORY_MB: ${PROFILE_MEMORY_MB:-256}
+    ANALYSIS_MEMORY_MB: ${ANALYSIS_MEMORY_MB:-256}
+    AUTO_ANALYZE: ${AUTO_ANALYZE:-true}
     QUERY_TIMEOUT_S: ${QUERY_TIMEOUT_S:-30}
     INGEST_STUCK_MINUTES: ${INGEST_STUCK_MINUTES:-30}
   # The API saves uploads and the worker converts them: both must see the same files.

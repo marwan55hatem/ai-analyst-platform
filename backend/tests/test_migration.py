@@ -142,3 +142,46 @@ def test_migration_0005_adds_the_profile_stage(empty_url: URL) -> None:
         c["name"] for c in inspect(engine).get_columns("dataset_versions")
     }
     engine.dispose()
+
+
+def test_migration_0006_adds_analysis_runs_and_insights(empty_url: URL) -> None:
+    cfg = alembic_config(empty_url)
+    command.upgrade(cfg, "0006")
+    engine = create_engine(empty_url)
+    inspector = inspect(engine)
+    assert {"analysis_runs", "insights"} <= set(inspector.get_table_names())
+    runs = {c["name"] for c in inspector.get_columns("analysis_runs")}
+    assert {
+        "id",
+        "tenant_id",
+        "dataset_version_id",
+        "status",
+        "progress",
+        "config",
+        "started_at",
+        "finished_at",
+        "error",
+    } <= runs
+    insights = {c["name"] for c in inspector.get_columns("insights")}
+    assert {
+        "id",
+        "run_id",
+        "tenant_id",
+        "module",
+        "type",
+        "title",
+        "summary",
+        "impact_score",
+        "confidence",
+        "sample_size",
+        "payload",
+        "chart_spec",
+        "evidence",
+        "created_at",
+    } <= insights
+    engine.dispose()
+
+    command.downgrade(cfg, "0005")
+    engine = create_engine(empty_url)
+    assert not {"analysis_runs", "insights"} & set(inspect(engine).get_table_names())
+    engine.dispose()

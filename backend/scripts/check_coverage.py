@@ -9,9 +9,14 @@ import json
 import sys
 from pathlib import Path
 
-GUARDED_PACKAGES = ("app/api", "app/core", "app/services/profiling")
+GUARDED_PACKAGES = (
+    "app/api",
+    "app/core",
+    "app/services/profiling",
+    "app/ml",
+)
 # Security-critical files held to a stricter bar than the package minimum.
-GUARDED_FILES = {"app/services/query.py": 90.0}
+GUARDED_FILES = {"app/services/query.py": 90.0, "app/services/analysis.py": 85.0}
 
 
 def package_coverage(
