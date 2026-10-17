@@ -13,9 +13,10 @@ from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
 from app.db.repository import DatasetRepository, DatasetVersionRepository
 from app.db.session import get_sessionmaker
-from app.models.dataset import Dataset, DatasetVersion, VersionStatus
+from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionStatus
 from app.models.user import User
 from app.services import ingest, storage, upload_validation
+from app.services.profiling.service import PROFILE_STUCK_ERROR, enqueue_profile
 
 logger = structlog.get_logger()
 
@@ -206,16 +207,25 @@ def run_ingest(tenant_id: uuid.UUID, version_id: uuid.UUID) -> None:
         version.warnings = result.warnings or None
         version.error = None
         version.status = VersionStatus.ready.value
-        current = (
-            DatasetVersionRepository(db, tenant_id).get(dataset.current_version_id)
-            if dataset.current_version_id
-            else None
-        )
-        if current is None or current.version < version.version:
-            dataset.current_version_id = version.id  # never move back to an older version
-        dataset.status = VersionStatus.ready.value
+        promote_if_newer(db, dataset, version)
         db.commit()
         logger.info("ingest_ready", version_id=str(version_id), rows=result.row_count)
+        enqueue_profile(db, tenant_id, version)
+
+
+def promote_if_newer(db: Session, dataset: Dataset, version: DatasetVersion) -> None:
+    """Make `version` the dataset's current one unless a newer version is already current.
+
+    A late-finishing older version must not overwrite the current one.
+    """
+    current = (
+        DatasetVersionRepository(db, dataset.tenant_id).get(dataset.current_version_id)
+        if dataset.current_version_id
+        else None
+    )
+    if current is None or current.version < version.version:
+        dataset.current_version_id = version.id
+    dataset.status = VersionStatus.ready.value
 
 
 def _fail(db: Session, dataset: Dataset, version: DatasetVersion, message: str) -> None:
@@ -232,7 +242,10 @@ STUCK_ERROR = "Processing timed out. Please upload again."
 def fail_stuck_ingestions(
     db: Session, *, now: datetime | None = None, stuck_minutes: int | None = None
 ) -> int:
-    """Mark versions that have been `processing` too long as failed; return how many.
+    """Mark versions stuck in `processing` (and profiles stuck `running`) as failed.
+
+    Returns how many rows were failed in total. A stuck profile fails only the profile; the
+    version itself stays ready.
 
     This is a maintenance job that runs across all tenants (it is not request-scoped), so it
     queries the table directly. Versions without a start time (rows from before the column
@@ -255,5 +268,18 @@ def fail_stuck_ingestions(
         logger.warning(
             "ingest_timed_out", version_id=str(version.id), tenant_id=str(version.tenant_id)
         )
+    profile_started = func.coalesce(DatasetVersion.profile_started_at, DatasetVersion.created_at)
+    stuck_profiles = db.scalars(
+        select(DatasetVersion).where(
+            DatasetVersion.profile_status == ProfileStatus.running.value,
+            profile_started < cutoff,
+        )
+    ).all()
+    for version in stuck_profiles:
+        version.profile_status = ProfileStatus.failed.value
+        version.profile_error = PROFILE_STUCK_ERROR
+        logger.warning(
+            "profile_timed_out", version_id=str(version.id), tenant_id=str(version.tenant_id)
+        )
     db.commit()
-    return len(stuck)
+    return len(stuck) + len(stuck_profiles)

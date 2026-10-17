@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-GUARDED_PACKAGES = ("app/api", "app/core")
+GUARDED_PACKAGES = ("app/api", "app/core", "app/services/profiling")
 # Security-critical files held to a stricter bar than the package minimum.
 GUARDED_FILES = {"app/services/query.py": 90.0}
 
@@ -55,7 +55,7 @@ def main() -> int:
         ok = percent >= args.minimum
         failed |= not ok
         verdict = "ok" if ok else "FAIL"
-        print(f"coverage check: {package:<9} {percent:6.2f}% (min {args.minimum:.0f}%) {verdict}")
+        print(f"coverage check: {package:<24} {percent:6.2f}% (min {args.minimum:.0f}%) {verdict}")
     for name, minimum in GUARDED_FILES.items():
         covered, statements = package_coverage(files, name, only=name)
         if statements == 0:

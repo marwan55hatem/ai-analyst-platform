@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 .vscode/
 coverage.json
+
+# generated fixtures (python evaluation/datasets/generators/retail_generator.py)
+evaluation/datasets/generated/

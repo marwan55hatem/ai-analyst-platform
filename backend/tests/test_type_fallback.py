@@ -40,20 +40,22 @@ def test_bad_value_makes_only_that_csv_column_text(
     monkeypatch.setattr(ingest, "CSV_BLOCK_BYTES", 64 * 1024)
     rows = [[i, f"{i}.5", f"name{i}"] for i in range(20_000)]
     rows[5000][1] = '"$1,200"'
-    body = upload_ready(client, owner, csv_bytes(rows, ["id", "price", "name"]), "mixed.csv")
+    body = upload_ready(client, owner, csv_bytes(rows, ["seq", "price", "name"]), "mixed.csv")
     version = body["versions"][0]
     assert version["row_count"] == 20_000
     assert version["warnings"] == [MIXED.format("price")]
     assert _types(client, owner, body["id"]) == {
-        "id": "BIGINT",
+        "seq": "BIGINT",
         "price": "VARCHAR",
         "name": "VARCHAR",
     }
     with get_sessionmaker()() as session:
         service = SafeQueryService(session)
         tenant, version_id = uuid.UUID(owner.tenant_id), uuid.UUID(version["id"])
-        found = service.run(tenant, version_id, "SELECT id, price FROM data WHERE price = '$1,200'")
-        total = service.run(tenant, version_id, "SELECT sum(id) FROM data")
+        found = service.run(
+            tenant, version_id, "SELECT seq, price FROM data WHERE price = '$1,200'"
+        )
+        total = service.run(tenant, version_id, "SELECT sum(seq) FROM data")
     assert found.rows == [[5000, "$1,200"]]  # the offending value survived as written
     assert total.rows == [[sum(range(20_000))]]  # id is still numeric
 
@@ -65,11 +67,11 @@ def test_integer_column_with_a_later_float_becomes_double_csv(
     monkeypatch.setattr(ingest, "CSV_BLOCK_BYTES", 16 * 1024)
     rows: list[list[Any]] = [[i, i * 2, f"n{i}"] for i in range(6000)]
     rows[3000][1] = "2.5"
-    body = upload_ready(client, owner, csv_bytes(rows, ["id", "qty", "name"]), "promote.csv")
+    body = upload_ready(client, owner, csv_bytes(rows, ["seq", "qty", "name"]), "promote.csv")
     version = body["versions"][0]
     assert version["row_count"] == 6000 and not version["warnings"]
     assert _types(client, owner, body["id"]) == {
-        "id": "BIGINT",
+        "seq": "BIGINT",
         "qty": "DOUBLE",
         "name": "VARCHAR",
     }
@@ -80,13 +82,13 @@ def test_integer_column_with_a_later_float_becomes_double_xlsx(
 ) -> None:
     owner = register(client)
     monkeypatch.setattr(ingest, "XLSX_BATCH_ROWS", 500)
-    rows: list[list[Any]] = [["id", "qty", "name"]] + [[i, i * 2, f"n{i}"] for i in range(6000)]
+    rows: list[list[Any]] = [["seq", "qty", "name"]] + [[i, i * 2, f"n{i}"] for i in range(6000)]
     rows[3001][1] = 2.5  # data row 3000
     body = upload_ready(client, owner, xlsx_bytes({"Data": rows}), "promote.xlsx")
     version = body["versions"][0]
     assert version["row_count"] == 6000 and not version["warnings"]
     assert _types(client, owner, body["id"]) == {
-        "id": "BIGINT",
+        "seq": "BIGINT",
         "qty": "DOUBLE",
         "name": "VARCHAR",
     }
@@ -97,14 +99,14 @@ def test_bad_value_makes_only_that_excel_column_text(
 ) -> None:
     owner = register(client)
     monkeypatch.setattr(ingest, "XLSX_BATCH_ROWS", 500)
-    rows: list[list[Any]] = [["id", "amount", "qty"]] + [[i, float(i), i] for i in range(3000)]
+    rows: list[list[Any]] = [["seq", "amount", "qty"]] + [[i, float(i), i] for i in range(3000)]
     rows[2501][1] = "$1,200"
     body = upload_ready(client, owner, xlsx_bytes({"Data": rows}), "mixed.xlsx")
     version = body["versions"][0]
     assert version["row_count"] == 3000
     assert version["warnings"] == [MIXED.format("amount")]
     assert _types(client, owner, body["id"]) == {
-        "id": "BIGINT",
+        "seq": "BIGINT",
         "amount": "VARCHAR",
         "qty": "BIGINT",
     }
@@ -112,10 +114,10 @@ def test_bad_value_makes_only_that_excel_column_text(
 
 def test_excel_bad_value_inside_first_batch_is_still_per_column(client: TestClient) -> None:
     owner = register(client)
-    rows: list[list[Any]] = [["id", "amount"]] + [[i, float(i)] for i in range(100)]
+    rows: list[list[Any]] = [["seq", "amount"]] + [[i, float(i)] for i in range(100)]
     rows[10][1] = "n/a"
     body = upload_ready(client, owner, xlsx_bytes({"Data": rows}), "small.xlsx")
-    assert _types(client, owner, body["id"]) == {"id": "BIGINT", "amount": "VARCHAR"}
+    assert _types(client, owner, body["id"]) == {"seq": "BIGINT", "amount": "VARCHAR"}
     assert body["versions"][0]["warnings"] == [MIXED.format("amount")]
 
 

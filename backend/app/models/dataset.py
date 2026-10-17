@@ -30,6 +30,15 @@ class VersionStatus(StrEnum):
     failed = "failed"
 
 
+class ProfileStatus(StrEnum):
+    """Lifecycle of a version's profile, separate from the file's own status."""
+
+    pending = "pending"
+    running = "running"
+    ready = "ready"
+    failed = "failed"
+
+
 class Dataset(TenantMixin, Base):
     """A named dataset; its data lives in versions."""
 
@@ -61,6 +70,9 @@ class DatasetVersion(TenantMixin, Base):
     __tablename__ = "dataset_versions"
     __table_args__ = (
         CheckConstraint("status in ('uploaded', 'processing', 'ready', 'failed')", name="status"),
+        CheckConstraint(
+            "profile_status in ('pending', 'running', 'ready', 'failed')", name="profile_status"
+        ),
         UniqueConstraint("dataset_id", "version", name="uq_dataset_versions_dataset_id_version"),
     )
 
@@ -84,5 +96,19 @@ class DatasetVersion(TenantMixin, Base):
     warnings: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     processing_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    profile_status: Mapped[str] = mapped_column(
+        String(20), default=ProfileStatus.pending.value, server_default=ProfileStatus.pending.value
+    )
+    profile_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    profile_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    quality_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    quality: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    dataset_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    cleaning_plan: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    source_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("dataset_versions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = created_at_column()

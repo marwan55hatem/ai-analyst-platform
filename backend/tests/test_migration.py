@@ -76,3 +76,69 @@ def test_migration_0002_backfills_refresh_token_tenant_id(empty_url: URL) -> Non
     assert column["nullable"] is False
     command.downgrade(cfg, "0001")
     engine.dispose()
+
+
+def test_migration_0005_adds_the_profile_stage(empty_url: URL) -> None:
+    cfg = alembic_config(empty_url)
+    command.upgrade(cfg, "0004")
+    engine = create_engine(empty_url)
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO tenants (id, name) VALUES (gen_random_uuid(), 'T')"))
+        conn.execute(
+            text(
+                "INSERT INTO datasets (id, tenant_id, name, description, status) "
+                "SELECT gen_random_uuid(), id, 'D', '', 'ready' FROM tenants"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO dataset_versions (id, tenant_id, dataset_id, version, "
+                "original_filename, original_path, size_bytes, status) "
+                "SELECT gen_random_uuid(), tenant_id, id, 1, 'f.csv', 'p', 1, 'ready' "
+                "FROM datasets"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "0005")
+    engine = create_engine(empty_url)
+    inspector = inspect(engine)
+    assert {"column_profiles", "cleaning_logs"} <= set(inspector.get_table_names())
+    version_columns = {c["name"] for c in inspector.get_columns("dataset_versions")}
+    assert {
+        "profile_status",
+        "profile_error",
+        "profile_started_at",
+        "quality_score",
+        "quality",
+        "dataset_profile",
+        "cleaning_plan",
+        "source_version_id",
+    } <= version_columns
+    profile_columns = {c["name"] for c in inspector.get_columns("column_profiles")}
+    assert {
+        "dataset_version_id",
+        "tenant_id",
+        "name",
+        "original_name",
+        "inferred_type",
+        "semantic_role",
+        "role_confidence",
+        "role_source",
+        "stats",
+        "pii_flag",
+    } <= profile_columns
+    log_columns = {c["name"] for c in inspector.get_columns("cleaning_logs")}
+    assert {"version_id", "fix_id", "description", "rows_affected", "applied_at"} <= log_columns
+    with engine.connect() as conn:
+        statuses = conn.execute(text("SELECT profile_status FROM dataset_versions")).scalars().all()
+    assert statuses == ["pending"]  # existing versions are backfilled as not yet profiled
+    engine.dispose()
+
+    command.downgrade(cfg, "0004")
+    engine = create_engine(empty_url)
+    assert "column_profiles" not in inspect(engine).get_table_names()
+    assert "profile_status" not in {
+        c["name"] for c in inspect(engine).get_columns("dataset_versions")
+    }
+    engine.dispose()
