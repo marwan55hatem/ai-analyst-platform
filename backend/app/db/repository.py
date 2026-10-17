@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
 from app.models.dataset import Dataset, DatasetVersion
+from app.models.profile import CleaningLog, ColumnProfile
 from app.models.user import Role, User
 
 
@@ -100,6 +101,43 @@ class DatasetRepository(TenantRepository[Dataset]):
     def soft_delete(self, dataset: Dataset) -> None:
         """Mark a dataset deleted (data files are kept)."""
         dataset.deleted_at = datetime.now(UTC)
+
+
+class ColumnProfileRepository(TenantRepository[ColumnProfile]):
+    """Column profiles of one tenant."""
+
+    model = ColumnProfile
+
+    def for_version(self, version_id: uuid.UUID) -> list[ColumnProfile]:
+        """Return the profiles of a version in a stable order."""
+        stmt = (
+            self._select()
+            .where(ColumnProfile.dataset_version_id == version_id)
+            .order_by(ColumnProfile.name)
+        )
+        return list(self.session.scalars(stmt))
+
+    def get_by_name(self, version_id: uuid.UUID, name: str) -> ColumnProfile | None:
+        """Return one column of a version, or None."""
+        stmt = self._select().where(
+            ColumnProfile.dataset_version_id == version_id, ColumnProfile.name == name
+        )
+        return self.session.scalars(stmt).first()
+
+
+class CleaningLogRepository(TenantRepository[CleaningLog]):
+    """Applied cleaning fixes of one tenant."""
+
+    model = CleaningLog
+
+    def for_version(self, version_id: uuid.UUID) -> list[CleaningLog]:
+        """Return the fixes that created a version, in the order they were applied."""
+        stmt = (
+            self._select()
+            .where(CleaningLog.version_id == version_id)
+            .order_by(CleaningLog.applied_at, CleaningLog.fix_id)
+        )
+        return list(self.session.scalars(stmt))
 
 
 class DatasetVersionRepository(TenantRepository[DatasetVersion]):

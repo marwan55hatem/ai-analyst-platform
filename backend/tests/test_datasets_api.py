@@ -63,7 +63,7 @@ def test_messy_csv_normalizes_columns_and_detects_semicolon(client: TestClient) 
 
 def test_tab_delimited_file(client: TestClient) -> None:
     owner = register(client)
-    content = csv_bytes([[1, "a"], [2, "b"]], ["id", "label"], delimiter="\t")
+    content = csv_bytes([[1, "a"], [2, "b"]], ["n", "label"], delimiter="\t")
     for filename in ("data.tsv", "data.csv"):
         body = upload_ready(client, owner, content, filename)
         assert body["versions"][0]["delimiter"] == "\t"

@@ -1,4 +1,4 @@
-"""Dataset endpoints: upload, versions, list, detail, delete, sheets, preview."""
+"""Dataset endpoints: upload, versions, list, detail, delete, sheets, preview, profile, cleaning."""
 
 import uuid
 from typing import Annotated
@@ -19,8 +19,18 @@ from app.schemas.dataset import (
     PreviewOut,
     SheetsOut,
 )
+from app.schemas.profile import (
+    ApplyRequest,
+    CleaningPlanOut,
+    ColumnProfileOut,
+    FixOut,
+    ProfileOut,
+    QualityOut,
+    RoleUpdate,
+)
+from app.services import cleaning, ingest
 from app.services import datasets as service
-from app.services import ingest
+from app.services.profiling import service as profiling
 from app.services.query import SafeQueryService
 from app.services.storage import get_storage
 
@@ -189,3 +199,127 @@ def preview_dataset(
         row_count=len(result.rows),
         total_rows=version.row_count,
     )
+
+
+VersionNumber = Annotated[
+    int | None, Query(ge=1, description="Version number; defaults to the current version")
+]
+PROFILE_ERRORS: dict[int | str, dict[str, object]] = {**responses.NOT_FOUND, **responses.CONFLICT}
+
+
+@router.get(
+    "/{dataset_id}/profile",
+    response_model=ProfileOut,
+    summary="Column profiles, roles and dataset-level findings of a version",
+    responses=PROFILE_ERRORS,
+)
+def get_profile(
+    dataset_id: uuid.UUID, db: DbSession, repo: DatasetRepo, version: VersionNumber = None
+) -> ProfileOut:
+    """Return the profile; 409 while it is still being computed or if it failed."""
+    target = profiling.resolve_version(db, repo.get_or_404(dataset_id), version)
+    return ProfileOut.model_validate(profiling.profile_payload(db, target))
+
+
+@router.get(
+    "/{dataset_id}/quality",
+    response_model=QualityOut,
+    summary="Quality score (0-100) with breakdown and the top 5 issues",
+    responses=PROFILE_ERRORS,
+)
+def get_quality(
+    dataset_id: uuid.UUID, db: DbSession, repo: DatasetRepo, version: VersionNumber = None
+) -> QualityOut:
+    """Return the stored quality report; use ?version=N to compare versions."""
+    target = profiling.resolve_version(db, repo.get_or_404(dataset_id), version)
+    profiling.require_profile(target)
+    return QualityOut(version_id=target.id, version=target.version, **(target.quality or {}))
+
+
+@router.get(
+    "/{dataset_id}/cleaning-plan",
+    response_model=CleaningPlanOut,
+    summary="Proposed cleaning fixes (never applied automatically)",
+    responses=PROFILE_ERRORS,
+)
+def get_cleaning_plan(
+    dataset_id: uuid.UUID, db: DbSession, repo: DatasetRepo, version: VersionNumber = None
+) -> CleaningPlanOut:
+    """List fixes with risk, affected counts and which ones are recommended (low risk only)."""
+    target = profiling.resolve_version(db, repo.get_or_404(dataset_id), version)
+    profiling.require_profile(target)
+    return CleaningPlanOut(
+        version_id=target.id,
+        version=target.version,
+        quality_score=target.quality_score,
+        fixes=[FixOut.model_validate(f) for f in target.cleaning_plan or []],
+    )
+
+
+@router.post(
+    "/{dataset_id}/cleaning-plan/apply",
+    response_model=DatasetDetail,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Apply the listed fixes by creating a new dataset version",
+    responses={**PROFILE_ERRORS, **responses.UNPROCESSABLE},
+)
+def apply_cleaning_plan(
+    dataset_id: uuid.UUID,
+    body: ApplyRequest,
+    user: CurrentUser,
+    db: DbSession,
+    repo: DatasetRepo,
+    version: VersionNumber = None,
+) -> DatasetDetail:
+    """Create a new version from the listed fix ids; the source version is never changed.
+
+    Only ids listed here are applied. Null fixes need a strategy other than `keep` to change data.
+    """
+    dataset = repo.get_or_404(dataset_id)
+    source = profiling.resolve_version(db, dataset, version)
+    new_version, selection = cleaning.start_cleaning(
+        db, user, dataset, source, [(f.id, f.strategy) for f in body.fixes]
+    )
+    db.commit()
+    cleaning.enqueue_cleaning(db, user.tenant_id, new_version, selection)
+    db.refresh(dataset)
+    return _detail(db, dataset)
+
+
+@router.post(
+    "/{dataset_id}/profile/rerun",
+    response_model=DatasetVersionOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Compute the profile again (409 while it is running)",
+    responses=PROFILE_ERRORS,
+)
+def rerun_profile(
+    dataset_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    repo: DatasetRepo,
+    version: VersionNumber = None,
+) -> DatasetVersionOut:
+    """Reset a ready or failed profile to pending and queue it again."""
+    dataset = repo.get_or_404(dataset_id)
+    target = profiling.resolve_version(db, dataset, version)
+    return DatasetVersionOut.model_validate(profiling.rerun_profile(db, user.tenant_id, target))
+
+
+@router.put(
+    "/{dataset_id}/columns/{name}/role",
+    response_model=ColumnProfileOut,
+    summary="Override a column's business role (the source becomes `user`)",
+    responses={**PROFILE_ERRORS, **responses.UNPROCESSABLE},
+)
+def set_column_role(
+    dataset_id: uuid.UUID,
+    name: str,
+    body: RoleUpdate,
+    db: DbSession,
+    repo: DatasetRepo,
+    version: VersionNumber = None,
+) -> ColumnProfileOut:
+    """Store the user's choice; it survives profile reruns and cleaned versions."""
+    target = profiling.resolve_version(db, repo.get_or_404(dataset_id), version)
+    return ColumnProfileOut.model_validate(profiling.override_role(db, target, name, body.role))

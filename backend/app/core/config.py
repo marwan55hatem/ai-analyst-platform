@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     ingest_stuck_minutes: int = 30
     query_memory_mb: int = 512
     query_threads: int = 2
+    profile_memory_mb: int = 512
     mlflow_tracking_uri: str = "http://localhost:5000"
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"

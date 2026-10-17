@@ -32,6 +32,10 @@ class DatasetVersionOut(BaseModel):
     delimiter: str | None
     column_map: list[ColumnMapping] | None
     warnings: list[str] | None
+    profile_status: str
+    profile_error: str | None
+    quality_score: int | None
+    source_version_id: uuid.UUID | None
     created_at: datetime
 
 

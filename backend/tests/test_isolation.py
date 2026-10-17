@@ -24,6 +24,12 @@ DATASET_ROUTES = {
     ("POST", "/api/v1/datasets/{dataset_id}/versions"),
     ("GET", "/api/v1/datasets/{dataset_id}/sheets"),
     ("GET", "/api/v1/datasets/{dataset_id}/preview"),
+    ("GET", "/api/v1/datasets/{dataset_id}/profile"),
+    ("GET", "/api/v1/datasets/{dataset_id}/quality"),
+    ("GET", "/api/v1/datasets/{dataset_id}/cleaning-plan"),
+    ("POST", "/api/v1/datasets/{dataset_id}/cleaning-plan/apply"),
+    ("POST", "/api/v1/datasets/{dataset_id}/profile/rerun"),
+    ("PUT", "/api/v1/datasets/{dataset_id}/columns/{name}/role"),
 }
 RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES
 # Routes that work without a token; every other route must answer 401 anonymously.
@@ -37,6 +43,12 @@ PUBLIC_ROUTES = {
 
 
 def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -> int:
+    if "/columns/" in path:
+        body = {"role": "revenue"}
+        return client.request(method, path, headers=headers, json=body).status_code
+    if path.endswith("/cleaning-plan/apply"):
+        body = {"fixes": [{"id": "trim:region"}]}
+        return client.request(method, path, headers=headers, json=body).status_code
     if path.endswith("/role"):
         return client.request(method, path, headers=headers, json={"role": "member"}).status_code
     if path.endswith("/versions"):
@@ -73,7 +85,7 @@ def test_tenant_b_gets_404_for_every_tenant_a_dataset_route(client: TestClient) 
     dataset_id = made["id"]
 
     for method, template in sorted(DATASET_ROUTES):
-        path = template.replace("{dataset_id}", dataset_id)
+        path = template.replace("{dataset_id}", dataset_id).replace("{name}", "region")
         for attacker in (owner_b, admin_b):
             assert _call(client, method, path, attacker.headers) == 404, (method, path)
 
