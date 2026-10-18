@@ -57,6 +57,20 @@ class AnalysisRunOut(BaseModel):
     created_at: datetime
 
 
+class AnalysisRunListItem(BaseModel):
+    """One run in a dataset's run list."""
+
+    id: uuid.UUID
+    dataset_version_id: uuid.UUID
+    version: int
+    status: str
+    progress: dict[str, Any]
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    insight_count: int
+
+
 class InsightSummary(BaseModel):
     """An insight without its heavy evidence, for lists."""
 

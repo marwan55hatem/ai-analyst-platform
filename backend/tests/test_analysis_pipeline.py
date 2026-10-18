@@ -23,7 +23,7 @@ from app.services.datasets import fail_stuck_ingestions
 from app.services.query import SafeQueryService, validate_sql
 from tests.dataset_helpers import upload, upload_ready
 from tests.ground_truth_fixtures import analyze, full, make, of_type
-from tests.helpers import API, register
+from tests.helpers import API, add_member, register
 
 FROZEN_NOW = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
 
@@ -408,3 +408,55 @@ def test_auto_enqueue_never_raises_and_skips_active_runs(
     monkeypatch.setattr(service, "_merged_config", broken)
     service.enqueue_analysis(db, tenant, version)  # swallowed
     assert db.scalar(select(func.count()).select_from(AnalysisRun)) == 0
+
+
+def test_list_analysis_runs_newest_first_with_filters(
+    client: TestClient, db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = register(client)
+    content, _ = make(tmp_path)
+    url_for = lambda ds: f"{API}/datasets/{ds}/analysis-runs"  # noqa: E731
+
+    empty = upload_ready(client, owner, content, "empty.csv")
+    assert client.get(url_for(empty["id"]), headers=owner.headers).json() == []
+
+    monkeypatch.setattr(get_settings(), "auto_analyze", True)
+    dataset = upload_ready(client, owner, content, "runs.csv")  # starts the automatic run
+    added = upload(client, owner, content, path=f"/datasets/{dataset['id']}/versions")
+    assert added.status_code == 201
+    manual = client.post(f"{API}/datasets/{dataset['id']}/analyze?version=1", headers=owner.headers)
+    assert manual.status_code == 202
+
+    runs = client.get(url_for(dataset["id"]), headers=owner.headers).json()
+    assert len(runs) == 3
+    assert runs[0]["id"] == manual.json()["id"] and runs[0]["version"] == 1
+    assert [r["version"] for r in runs] == [1, 2, 1]  # manual, auto on v2, auto on v1
+    assert runs[2]["id"] != runs[0]["id"]
+    assert all(r["status"] == "completed" for r in runs)
+    expected = {"id", "dataset_version_id", "version", "status", "progress", "started_at"}
+    assert expected | {"finished_at", "error", "insight_count"} == set(runs[0])
+    # the newest run on a version owns that version's insights; replaced runs show none
+    assert runs[0]["insight_count"] > 5 and runs[2]["insight_count"] == 0
+    assert runs[1]["insight_count"] > 5
+
+    only_v2 = client.get(f"{url_for(dataset['id'])}?version=2", headers=owner.headers).json()
+    assert [r["version"] for r in only_v2] == [2]
+    assert client.get(f"{url_for(dataset['id'])}?version=9", headers=owner.headers).json() == []
+    assert len(client.get(f"{url_for(dataset['id'])}?limit=2", headers=owner.headers).json()) == 2
+    for bad in ("limit=0", "limit=101", "version=0"):
+        assert (
+            client.get(f"{url_for(dataset['id'])}?{bad}", headers=owner.headers).status_code == 422
+        )
+    assert len(client.get(f"{url_for(dataset['id'])}?limit=100", headers=owner.headers).json()) == 3
+    assert client.get(url_for(uuid.uuid4()), headers=owner.headers).status_code == 404
+
+
+def test_other_tenants_cannot_list_runs(client: TestClient, tmp_path: Path) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    member_a = add_member(client, owner_a, "member")
+    content, _ = make(tmp_path)
+    dataset_id, _, _ = analyze(client, owner_a, content)
+    url = f"{API}/datasets/{dataset_id}/analysis-runs"
+    assert client.get(url, headers=owner_b.headers).status_code == 404
+    assert len(client.get(url, headers=member_a.headers).json()) == 1  # any member may read

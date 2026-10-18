@@ -36,6 +36,7 @@ DATASET_ROUTES = {
 ANALYSIS_ROUTES = {
     ("GET", "/api/v1/datasets/{dataset_id}/capabilities"),
     ("POST", "/api/v1/datasets/{dataset_id}/analyze"),
+    ("GET", "/api/v1/datasets/{dataset_id}/analysis-runs"),
     ("GET", "/api/v1/analysis-runs/{run_id}"),
     ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
     ("GET", "/api/v1/insights/{insight_id}"),

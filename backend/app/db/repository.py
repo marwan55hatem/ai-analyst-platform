@@ -194,6 +194,24 @@ class AnalysisRunRepository(TenantRepository[AnalysisRun]):
         )
         return self.session.scalars(stmt).first()
 
+    def list_for_dataset(
+        self, dataset_id: uuid.UUID, *, version: int | None = None, limit: int = 20
+    ) -> list[tuple[AnalysisRun, int, int]]:
+        """Return (run, version number, insight count) of a dataset's runs, newest first."""
+        count = func.count(Insight.id)
+        stmt = (
+            select(AnalysisRun, DatasetVersion.version, count)
+            .join(DatasetVersion, DatasetVersion.id == AnalysisRun.dataset_version_id)
+            .outerjoin(Insight, Insight.run_id == AnalysisRun.id)
+            .where(AnalysisRun.tenant_id == self.tenant_id, DatasetVersion.dataset_id == dataset_id)
+            .group_by(AnalysisRun.id, DatasetVersion.version)
+            .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id)
+            .limit(limit)
+        )
+        if version is not None:
+            stmt = stmt.where(DatasetVersion.version == version)
+        return [(run, number, int(n)) for run, number, n in self.session.execute(stmt)]
+
 
 class InsightRepository(TenantRepository[Insight]):
     """Insights of one tenant."""

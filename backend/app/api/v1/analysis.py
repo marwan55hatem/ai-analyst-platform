@@ -9,6 +9,7 @@ from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession
 from app.db.repository import AnalysisRunRepository, InsightRepository
 from app.schemas.analysis import (
+    AnalysisRunListItem,
     AnalysisRunOut,
     AnalyzeRequest,
     CapabilitiesOut,
@@ -68,6 +69,40 @@ def analyze(
     run = analysis.start_analysis(db, user.tenant_id, target, explicit)
     db.refresh(run)
     return AnalysisRunOut.model_validate(run)
+
+
+@router.get(
+    "/datasets/{dataset_id}/analysis-runs",
+    response_model=list[AnalysisRunListItem],
+    summary="Analysis runs of a dataset, newest first (finds the automatic run)",
+)
+def list_runs(
+    dataset_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    repo: DatasetRepo,
+    version: VersionNumber = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[AnalysisRunListItem]:
+    """Return the dataset's runs with their version number and insight count."""
+    repo.get_or_404(dataset_id)
+    found = AnalysisRunRepository(db, user.tenant_id).list_for_dataset(
+        dataset_id, version=version, limit=limit
+    )
+    return [
+        AnalysisRunListItem(
+            id=run.id,
+            dataset_version_id=run.dataset_version_id,
+            version=number,
+            status=run.status,
+            progress=run.progress,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+            error=run.error,
+            insight_count=count,
+        )
+        for run, number, count in found
+    ]
 
 
 @router.get(
