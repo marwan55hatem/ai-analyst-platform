@@ -14,6 +14,7 @@ GUARDED_PACKAGES = (
     "app/core",
     "app/services/profiling",
     "app/ml",
+    "app/ml/forecasting",
 )
 # Security-critical files held to a stricter bar than the package minimum.
 GUARDED_FILES = {"app/services/query.py": 90.0, "app/services/analysis.py": 85.0}

@@ -14,7 +14,13 @@ saved as JSON next to the CSV:
 `refunds=True` adds negative rows (returns) with known count and total. `lang="ar"` writes the
 same data with Arabic column names, to prove roles (not names) drive the modules.
 
-Run `python ground_truth_generator.py <output_dir> [--lang ar] [--refunds]` to write the files.
+`years=3` (CLI `--years 3`) extends the history to 2023-2025 with a PLANTED upward trend
+(`TREND_PER_YEAR`) on top of the same monthly seasonality, so the last year can be held out when
+testing forecasts. The default (2 years) is byte-for-byte what Step 4 expects. `--daily-series`
+writes a separate short daily file with a planted trend and weekly seasonality.
+
+Run `python ground_truth_generator.py <output_dir> [--lang ar] [--refunds] [--years 3]
+[--daily-series] [--seed N]` to write the files.
 """
 
 import csv
@@ -40,6 +46,14 @@ SEASON = {11: 1.4, 12: 2.6, 1: 0.8, 2: 0.8, 6: 0.9}
 CUSTOMER_POOL = 700
 NEW_CUSTOMER_RATE = 0.12
 REFUND_ROWS = 25
+DEFAULT_YEARS = 2
+# Extended histories: yearly growth of order volume, planted so forecasts have a trend to find.
+TREND_PER_YEAR = 0.25
+# Daily variant: weekday multipliers (Mon..Sun), base level and growth per day
+WEEKDAY_EFFECT = [0.9, 1.0, 1.0, 1.1, 1.3, 1.6, 0.7]
+DAILY_BASE_CENTS = 500_000
+DAILY_GROWTH_PER_DAY = 0.002
+DAILY_NOISE = 0.06
 
 HEADERS = {
     "en": [
@@ -102,12 +116,20 @@ def _products(rnd: random.Random) -> list[dict[str, Any]]:
     return products
 
 
-def _orders_on(day: date, rnd: random.Random) -> int:
-    base = 6.0 * SEASON.get(day.month, 1.0) * (1.0 if day.year == 2023 else 1.2)
+def _orders_on(day: date, rnd: random.Random, years: int = DEFAULT_YEARS) -> int:
+    if years == DEFAULT_YEARS:
+        base = 6.0 * SEASON.get(day.month, 1.0) * (1.0 if day.year == 2023 else 1.2)
+    else:
+        grown = 1.0 + TREND_PER_YEAR * (day - START).days / 365.25
+        base = 6.0 * SEASON.get(day.month, 1.0) * grown
     return max(1, round(base) + rnd.choice([-1, 0, 0, 1]))
 
 
-def _build_rows(seed: int, refunds: bool) -> list[Row]:
+def _end_date(years: int) -> date:
+    return date(START.year + years - 1, 12, 31)
+
+
+def _build_rows(seed: int, refunds: bool, years: int = DEFAULT_YEARS) -> list[Row]:
     rnd = random.Random(seed)
     products = _products(rnd)
     pool = [f"C{n:04d}" for n in range(1, CUSTOMER_POOL + 1)]
@@ -116,10 +138,11 @@ def _build_rows(seed: int, refunds: bool) -> list[Row]:
     rows: list[Row] = []
     order_no = 100000
     day = START
-    while day <= END:
+    end = END if years == DEFAULT_YEARS else _end_date(years)
+    while day <= end:
         live = [p for p in products if not (p["name"] in DEAD_PRODUCTS and day > DEAD_AFTER)]
         weights = [p["weight"] for p in live]
-        for _ in range(_orders_on(day, rnd)):
+        for _ in range(_orders_on(day, rnd, years)):
             order_no += 1
             if pool and (not seen or rnd.random() < NEW_CUSTOMER_RATE):
                 customer = pool.pop()
@@ -146,18 +169,16 @@ def _build_rows(seed: int, refunds: bool) -> list[Row]:
             )
         day += timedelta(days=1)
     if refunds:
-        rows.extend(_refund_rows(rows, rnd))
+        rows.extend(_refund_rows(rows, rnd, end))
     return rows
 
 
-def _refund_rows(rows: list[Row], rnd: random.Random) -> list[Row]:
+def _refund_rows(rows: list[Row], rnd: random.Random, end: date = END) -> list[Row]:
     top = _top(rows, "product")
-    candidates = [
-        r for r in rows if r["product"] not in DEAD_PRODUCTS and r["product"] != top
-    ]
+    candidates = [r for r in rows if r["product"] not in DEAD_PRODUCTS and r["product"] != top]
     out = []
     for n, original in enumerate(rnd.sample(candidates, REFUND_ROWS), start=1):
-        when = min(END, original["order_date"] + timedelta(days=rnd.randint(1, 20)))
+        when = min(end, original["order_date"] + timedelta(days=rnd.randint(1, 20)))
         out.append(
             {
                 **original,
@@ -189,7 +210,9 @@ def _cohorts(rows: list[Row]) -> dict[str, Any]:
     for r in rows:
         if r["revenue_cents"] > 0:
             months[r["customer_id"]].add(_month(r["order_date"]))
-    order = [f"{y}-{m:02d}" for y in (2023, 2024) for m in range(1, 13)]
+    first_year = min(r["order_date"].year for r in rows)
+    last_year = max(r["order_date"].year for r in rows)
+    order = [f"{y}-{m:02d}" for y in range(first_year, last_year + 1) for m in range(1, 13)]
     index = {m: i for i, m in enumerate(order)}
     sizes: dict[str, int] = defaultdict(int)
     back: dict[str, int] = defaultdict(int)
@@ -207,12 +230,16 @@ def _cohorts(rows: list[Row]) -> dict[str, Any]:
             "month1_retained": back[first_cohort],
         },
         "cohort_sizes": dict(sorted(sizes.items())),
-        "month1_retention_pct": 100.0 * sum(back[c] for c in eligible) / sum(sizes[c] for c in eligible),
+        "month1_retention_pct": 100.0
+        * sum(back[c] for c in eligible)
+        / sum(sizes[c] for c in eligible),
         "customers": len(months),
     }
 
 
-def compute_facts(rows: list[Row], seed: int, lang: str, refunds: bool) -> dict[str, Any]:
+def compute_facts(
+    rows: list[Row], seed: int, lang: str, refunds: bool, years: int = DEFAULT_YEARS
+) -> dict[str, Any]:
     """Compute every planted fact directly from the rows."""
     positive = [r for r in rows if r["revenue_cents"] > 0]
     negative = [r for r in rows if r["revenue_cents"] < 0]
@@ -240,7 +267,7 @@ def compute_facts(rows: list[Row], seed: int, lang: str, refunds: bool) -> dict[
     ytd = sum(r["revenue_cents"] for r in rows if r["order_date"].year == last.year)
     prior = sum(r["revenue_cents"] for r in rows if r["order_date"].year == last.year - 1)
     cohorts = _cohorts(rows)
-    return {
+    facts = {
         "seed": seed,
         "lang": lang,
         "refunds": refunds,
@@ -276,6 +303,23 @@ def compute_facts(rows: list[Row], seed: int, lang: str, refunds: bool) -> dict[
         "yoy_pct": 100.0 * (ytd - prior) / prior,
         **cohorts,
     }
+    if years != DEFAULT_YEARS:
+        facts["planted"] = _planted(monthly, last.year, years)
+    return facts
+
+
+def _planted(monthly: dict[str, int], holdout_year: int, years: int) -> dict[str, Any]:
+    """Facts for forecast tests: the planted trend and the held-out final year."""
+    return {
+        "years": years,
+        "trend_per_year": TREND_PER_YEAR,
+        "seasonal_multipliers": {str(m): v for m, v in sorted(SEASON.items())},
+        "holdout_year": holdout_year,
+        "holdout_monthly_cents": {
+            k: v for k, v in monthly.items() if k.startswith(str(holdout_year))
+        },
+        "training_months": sum(1 for k in monthly if not k.startswith(str(holdout_year))),
+    }
 
 
 def _money(cents: int) -> str:
@@ -284,15 +328,22 @@ def _money(cents: int) -> str:
 
 
 def generate(
-    directory: Path, seed: int = 11, lang: str = "en", refunds: bool = False
+    directory: Path,
+    seed: int = 11,
+    lang: str = "en",
+    refunds: bool = False,
+    years: int = DEFAULT_YEARS,
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Write the CSV and its facts JSON into `directory`; return (csv, json, facts)."""
+    if years < DEFAULT_YEARS:
+        raise ValueError("years must be at least 2")
     directory.mkdir(parents=True, exist_ok=True)
-    rows = _build_rows(seed, refunds)
-    facts = compute_facts(rows, seed, lang, refunds)
+    rows = _build_rows(seed, refunds, years)
+    facts = compute_facts(rows, seed, lang, refunds, years)
     if facts["customer_count"] < 500 or facts["dead_stock"] != sorted(DEAD_PRODUCTS):
         raise AssertionError("generator no longer satisfies its planted facts")
-    stem = f"ground_truth_{lang}{'_refunds' if refunds else ''}"
+    suffix = "" if years == DEFAULT_YEARS else f"_{years}y"
+    stem = f"ground_truth_{lang}{'_refunds' if refunds else ''}{suffix}"
     csv_path, json_path = directory / f"{stem}.csv", directory / f"{stem}.json"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -313,12 +364,64 @@ def generate(
                     _money(r["cost_cents"]),
                 ]
             )
-    json_path.write_text(json.dumps(facts, indent=2, ensure_ascii=False), encoding="utf-8")
+    _write_json(json_path, facts, ensure_ascii=False)
     return csv_path, json_path, facts
 
 
+def _write_json(path: Path, facts: dict[str, Any], ensure_ascii: bool = True) -> None:
+    """Write facts with LF newlines on every OS (write_text would emit CRLF on Windows)."""
+    with path.open("w", newline="\n", encoding="utf-8") as handle:
+        handle.write(json.dumps(facts, indent=2, ensure_ascii=ensure_ascii))
+
+
+def generate_daily(
+    directory: Path, seed: int = 11, days: int = 140
+) -> tuple[Path, Path, dict[str, Any]]:
+    """Write a short daily revenue file (planted trend + weekly pattern) and its facts."""
+    directory.mkdir(parents=True, exist_ok=True)
+    rnd = random.Random(seed)
+    rows = []
+    for i in range(days):
+        day = START + timedelta(days=i)
+        level = DAILY_BASE_CENTS * (1 + DAILY_GROWTH_PER_DAY * i) * WEEKDAY_EFFECT[day.weekday()]
+        rows.append((day, round(level * (1 + rnd.gauss(0, DAILY_NOISE)))))
+    facts = {
+        "seed": seed,
+        "days": days,
+        "first_date": rows[0][0].isoformat(),
+        "last_date": rows[-1][0].isoformat(),
+        "weekday_effect": WEEKDAY_EFFECT,
+        "growth_per_day": DAILY_GROWTH_PER_DAY,
+        "base_cents": DAILY_BASE_CENTS,
+        "net_revenue_cents": sum(c for _, c in rows),
+    }
+    csv_path = directory / "ground_truth_daily.csv"
+    json_path = directory / "ground_truth_daily.json"
+    with csv_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["order_date", "revenue"])
+        for day, cents in rows:
+            writer.writerow([day.isoformat(), _money(cents)])
+    _write_json(json_path, facts)
+    return csv_path, json_path, facts
+
+
+def _option(name: str, default: str) -> str:
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith("--") else Path(".")
-    language = sys.argv[sys.argv.index("--lang") + 1] if "--lang" in sys.argv else "en"
-    written = generate(target, lang=language, refunds="--refunds" in sys.argv)
+    first = sys.argv[1] if len(sys.argv) > 1 else "."
+    target = Path(first) if not first.startswith("--") else Path(".")
+    chosen_seed = int(_option("--seed", "11"))
+    if "--daily-series" in sys.argv:
+        written = generate_daily(target, seed=chosen_seed)
+    else:
+        written = generate(
+            target,
+            seed=chosen_seed,
+            lang=_option("--lang", "en"),
+            refunds="--refunds" in sys.argv,
+            years=int(_option("--years", str(DEFAULT_YEARS))),
+        )
     print(f"wrote {written[0]}\nwrote {written[1]}")

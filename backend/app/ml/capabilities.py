@@ -33,6 +33,14 @@ def check(module: AnalysisModule, roles: RoleMap) -> Capability:
         return Capability(
             module.name, module.title, False, f"{phrases}, so {module.title.lower()} is skipped"
         )
+    if module.requires_any and not any(roles.has(r) for r in module.requires_any):
+        options = " or ".join(sorted(module.requires_any))
+        return Capability(
+            module.name,
+            module.title,
+            False,
+            f"no {options} column, so {module.title.lower()} is skipped",
+        )
     return Capability(module.name, module.title, True, None, module.notes(roles))
 
 

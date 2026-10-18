@@ -96,6 +96,7 @@ than 12 medium, otherwise high. Seasonality without STL (under 24 months) is alw
 | `trend_seasonality` | revenue, date | STL (statsmodels, period 12, robust) of monthly net revenue for 24+ months, with a plain monthly index for 12-23 months (low confidence) and nothing below 12; peak and weakest month; seasonal strength 1 - Var(resid)/Var(seasonal+resid); weekday pattern (4+ weeks of daily data); strongest growth and steepest decline between consecutive complete months; year-to-date vs the same span last year. Missing months are interpolated and flagged. |
 | `pareto` | revenue + product/category/region/channel | per dimension: ABC classes (A up to 80% cumulative share, B up to 95%, C the rest), top contributors, long tail (classes B and C); dead stock: products whose last positive sale is more than N days (default 90, `dead_stock_days`) before the dataset's last date. |
 | `cohort_retention` | customer_id, date | monthly cohorts by first positive purchase month, retention matrix (offsets 0-12), customer-weighted month-1 and month-3 retention over cohorts old enough to observe. The incomplete last month is left out. |
+| `forecast` | date + (revenue or quantity) | rolling-origin backtested forecast of net revenue (or quantity) for the whole business and its top 5 categories (or products), default 6 periods, with 80% and 95% ranges. See [Forecast](#forecast). |
 
 ## Statistical notes
 
@@ -103,3 +104,97 @@ than 12 medium, otherwise high. Seasonality without STL (under 24 months) is alw
   month to choose the peak.
 * Percentage changes against a zero base are not reported.
 * Cohort retention uses customer-weighted averages, not an average of cohort percentages.
+
+## Forecast
+
+`app/ml/forecasting/` (engine) and `app/ml/modules/forecast.py` (the module). The same code serves the
+automatic run and `POST /datasets/{id}/forecast` (metric, horizon, group_by, frequency).
+
+### What is forecast
+
+* **Metric**: net revenue (the Step 4 net basis: refunds are negative rows and stay in), or quantity,
+  or cost. `price` is refused because it cannot be summed.
+* **Series**: the whole business, plus the top 5 categories (or products when there is no category
+  column) by net revenue; a custom request chooses the dimension with `group_by` (a dimension role or
+  its column name, at most `FORECAST_MAX_GROUPS` groups).
+* **Level**: aggregated in DuckDB (the history SQL is the stored evidence and passes `validate_sql`).
+  The detected granularity decides: monthly data stays monthly; daily or weekly rows are rolled up to
+  months once there is a year of history (to weeks after half a year, otherwise days); quarterly stays
+  quarterly; yearly data is not forecast. `frequency` in a custom request overrides this.
+  Seasonal cycles: day 7, week 52, month 12, quarter 4.
+* **Primary date**: the same rule as Step 4 (an explicit `date_column` wins, then order/sale/invoice
+  names, then the first date column).
+
+### Series preparation (every change is a warning)
+
+1. **Partial last period dropped.** If the data ends part-way through a period (for example on the 14th),
+   that period is removed from training: half a month of sales would pull every forecast down. The
+   forecast then starts at the dropped period.
+2. **Gaps filled with zero.** A period without records is treated as "no sales" (zero) for revenue,
+   quantity and cost, and counted in a warning.
+3. **Outliers capped for training only.** Values more than 5 robust deviations (MAD) from a trend plus
+   seasonal-position level (fitted on log values for non-negative series) are capped; the chart and the
+   backtest scores use the real values. A normal seasonal peak is not an outlier.
+
+### Candidate models and selection
+
+* Baseline **seasonal naive** (repeat the same period of the last cycle); **AutoETS**, **AutoARIMA** and
+  **AutoTheta** from statsforecast; **LightGBM** on a linear trend plus lag, rolling-mean and calendar
+  features (recursive, fixed seed, one thread). No Prophet. ARIMA and seasonal ETS are skipped for
+  weekly data (cycle 52) because they are slow and memory hungry.
+* **Fewer than two full seasonal cycles**: only simple models (naive or seasonal naive, non-seasonal ETS
+  and Theta); confidence is low. Below one cycle, or too short to backtest, the baseline is used.
+* **Rolling-origin (expanding window) backtest**: horizon = the requested horizon, shrunk so that at
+  least two thirds of the history is always training data; windows move forward half a horizon at a
+  time, at most 6, with two seasonal cycles as the earliest training set when the history allows.
+* **Metrics** pooled over all test points: sMAPE (percent, 0-200), MAE (units of the metric) and MASE
+  (MAE divided by the in-sample seasonal-naive MAE; below 1 beats the baseline). The winner has the
+  lowest MASE. It must beat the baseline's MASE by at least 2%; otherwise the result is "no better than
+  a seasonal naive baseline": the baseline is used and confidence is low.
+* Fixed random seed (`FORECAST_SEED`, default 42): the same data gives the same forecast.
+
+### Intervals
+
+80% and 95% prediction intervals come from the models (statsforecast's model-based intervals). For
+LightGBM they come from the root-mean-square of its own earlier backtest errors (1.5x its in-sample
+residuals when there are none yet). Each backtest also measures how often the 80% range really
+contained the outcome (`coverage80`); on the synthetic test series it averages 70-90% across seeds.
+Lower bounds are cut at zero for series that never go negative. An interval says how far real outcomes
+were from past forecasts of this kind; it is not a guarantee.
+
+### Confidence (`forecasting/confidence.py`)
+
+| Level | Needs |
+|---|---|
+| high | beats the baseline, MASE <= 0.7 and at least 3 full seasonal cycles of history |
+| medium | beats the baseline, MASE <= 1.0 and at least 2 full cycles |
+| low | anything else: under 2 cycles, MASE above 1, no better than the baseline, no backtest possible, a constant series |
+
+Then one level is removed if the backtest 80% coverage is outside 60-95%, and the Step 4 data-quality
+cap (duplicates, null key columns, low quality score) is applied on top. The wording follows the final
+level: every title and summary says "estimated" and shows the 80% range beside the point value; low
+confidence or "no better than baseline" opens the summary with "This forecast is unreliable: ...".
+
+### Limits on the work (never a timeout)
+
+`FORECAST_MAX_SECONDS`, `FORECAST_MAX_SERIES` and `FORECAST_MEMORY_MB` (process RSS) are checked before
+each model and each extra series. When one is hit: no further models are tried (LightGBM, the heaviest,
+needs 40% of the time budget in reserve and goes first), then the remaining groups are skipped; each
+step is a warning. The baseline always runs.
+
+### MLflow
+
+One run per forecast under experiment `tenant-<tenant_id>` (tags `tenant_id`, `dataset_version_id`),
+with parameters, per-model backtest metrics (`s0.AutoETS.mase`; series are numbered, never named) and
+`forecast.json` (periods, point, 80/95 bounds, scores; no history, no rows). Logging runs on a thread
+with a short deadline: an unreachable server only adds a warning.
+
+### Statistical caveats
+
+* The winner is the best of up to five models on a few overlapping windows, so its scores are slightly
+  optimistic (selection bias) and overlapping windows are correlated; treat 3-4 points of coverage as noise.
+* The 2% margin and the confidence thresholds are conventions, not significance tests.
+* **Known limits**: no holiday, Ramadan or Eid effects, no promotions or price changes, no external
+  data (weather, macro), no reconciliation (group forecasts need not add up to the total). Seasonality
+  is learned from the history only, so a moving calendar (Ramadan shifts about 11 days a year) is smeared
+  across neighbouring months.

@@ -31,6 +31,7 @@ def test_planted_facts_are_recovered_exactly(client: TestClient, tmp_path: Path,
         "trend_seasonality": "completed",
         "pareto": "completed",
         "cohort_retention": "completed",
+        "forecast": "completed",
     }
 
     kpi = _one(client, owner, insights, "kpi_summary")["payload"]

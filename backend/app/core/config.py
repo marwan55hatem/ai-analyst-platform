@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     analysis_memory_mb: int = 512
     auto_analyze: bool = True
     mlflow_tracking_uri: str = "http://localhost:5000"
+    forecast_max_seconds: float = 60.0
+    forecast_max_series: int = 11
+    forecast_max_horizon: int = 24
+    forecast_max_groups: int = 10
+    forecast_memory_mb: int = 400
+    forecast_seed: int = 42
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"
     email_api_key: str = ""

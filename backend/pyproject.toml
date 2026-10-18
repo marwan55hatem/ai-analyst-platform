@@ -24,6 +24,10 @@ dependencies = [
     "sqlglot>=30.23.0",
     "charset-normalizer>=3.5.2",
     "statsmodels>=0.15.0",
+    "statsforecast>=2.0.3",
+    "lightgbm>=4.7.0",
+    "mlflow-skinny==2.22.0",
+    "psutil>=7.2.2",
 ]
 
 [dependency-groups]
@@ -69,7 +73,7 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -79,3 +83,9 @@ disable_error_code = ["untyped-decorator"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: generates a large file at runtime (still part of make test)"]
+filterwarnings = [
+    "ignore::SyntaxWarning",
+    "ignore::DeprecationWarning:mlflow.*",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince212",
+]

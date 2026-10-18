@@ -1,6 +1,8 @@
 """Analysis use cases: capabilities, start or re-run a run, and the module-running worker."""
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -155,23 +157,20 @@ def run_analysis(tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
                 db.commit()
 
 
-def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
-    runs = AnalysisRunRepository(db, tenant_id)
-    run = runs.get_or_404(run_id)
-    version = DatasetVersionRepository(db, tenant_id).get_or_404(run.dataset_version_id)
+@contextmanager
+def analysis_context(
+    db: Session, tenant_id: uuid.UUID, version: DatasetVersion, config: dict[str, Any]
+) -> Iterator[AnalysisContext]:
+    """Open the hardened per-run DuckDB table and yield the context modules receive."""
     assert version.parquet_path is not None
-    config = dict(run.config)
     profiles = ColumnProfileRepository(db, tenant_id).for_version(version.id)
     order = [m["normalized"] for m in (version.column_map or [])]
     roles = RoleMap.from_profiles(profiles, order, config.get("date_column"))
     date_name = roles.col("date")
     granularity = next((p.stats.get("granularity") for p in profiles if p.name == date_name), None)
-    modules = registry.all_modules()
-    progress: dict[str, Any] = {"total": len(modules), "done": 0, "modules": {}}
-    collected: list[Insight] = []
     parquet = storage.get_storage().local_path(version.parquet_path)
     with open_analysis(parquet, roles) as connection:
-        context = AnalysisContext(
+        yield AnalysisContext(
             tenant_id=tenant_id,
             version_id=version.id,
             roles=roles,
@@ -180,9 +179,19 @@ def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
             quality=QualityContext.from_version(
                 version.dataset_profile, version.quality_score, profiles
             ),
-            config=config,
+            config=dict(config),
             granularity=granularity,
         )
+
+
+def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
+    runs = AnalysisRunRepository(db, tenant_id)
+    run = runs.get_or_404(run_id)
+    version = DatasetVersionRepository(db, tenant_id).get_or_404(run.dataset_version_id)
+    modules = registry.all_modules()
+    progress: dict[str, Any] = {"total": len(modules), "done": 0, "modules": {}}
+    collected: list[Insight] = []
+    with analysis_context(db, tenant_id, version, dict(run.config)) as context:
         for module in modules:
             progress["modules"][module.name] = _run_module(module, context, collected)
             progress["done"] += 1
