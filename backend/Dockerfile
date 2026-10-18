@@ -8,7 +8,13 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app
-RUN useradd --create-home --uid 1000 app
+# numba (statsforecast) needs a writable cache; OMP_NUM_THREADS keeps LightGBM to one core
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache OMP_NUM_THREADS=1
+# libgomp1 is the OpenMP runtime LightGBM needs on the slim image
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 app \
+    && mkdir -p /tmp/numba_cache && chown app:app /tmp/numba_cache
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./

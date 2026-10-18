@@ -63,7 +63,7 @@ def test_every_evidence_query_is_valid_and_reproducible(
     dataset_id, run, insights = analyze(client, owner, content)
     version_id = uuid.UUID(run["dataset_version_id"])
     modules = {i["module"] for i in insights}
-    assert modules == {"kpis", "trend_seasonality", "pareto", "cohort_retention"}
+    assert modules == {"kpis", "trend_seasonality", "pareto", "cohort_retention", "forecast"}
     service = SafeQueryService(db)
     checked = 0
     for summary in insights:
@@ -79,7 +79,7 @@ def test_every_evidence_query_is_valid_and_reproducible(
                     again,
                 )
             checked += 1
-    assert checked >= 8
+    assert checked >= 10
 
 
 def test_capabilities_for_a_full_dataset_and_one_without_customer_id(
@@ -94,6 +94,7 @@ def test_capabilities_for_a_full_dataset_and_one_without_customer_id(
         "trend_seasonality": True,
         "pareto": True,
         "cohort_retention": True,
+        "forecast": True,
     }
 
     slim = upload_ready(client, owner, drop_columns(content, {"customer_id"}), "slim.csv")

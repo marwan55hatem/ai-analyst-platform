@@ -11,6 +11,7 @@ from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
 from app.models.analysis import AnalysisRun, AnalysisStatus, Insight
 from app.models.dataset import Dataset, DatasetVersion
+from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
 from app.models.user import Role, User
 
@@ -246,3 +247,18 @@ class InsightRepository(TenantRepository[Insight]):
                 Insight.tenant_id == self.tenant_id, Insight.dataset_version_id == version_id
             )
         )
+
+
+class ModelRunRepository(TenantRepository[ModelRun]):
+    """Custom model runs (forecasts) of one tenant."""
+
+    model = ModelRun
+
+    def active_for_version(self, version_id: uuid.UUID, kind: str) -> ModelRun | None:
+        """Return a pending or running run of this kind for a version, if any."""
+        stmt = self._select().where(
+            ModelRun.dataset_version_id == version_id,
+            ModelRun.kind == kind,
+            ModelRun.status.in_(["pending", "running"]),
+        )
+        return self.session.scalars(stmt).first()

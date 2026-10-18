@@ -45,6 +45,14 @@ def run_analysis_task(tenant_id: str, run_id: str) -> None:
     run_analysis(uuid.UUID(tenant_id), uuid.UUID(run_id))
 
 
+@celery_app.task(name="app.workers.tasks.run_forecast")
+def run_forecast_task(tenant_id: str, run_id: str) -> None:
+    """Compute a pending custom forecast (metric, horizon, group_by) off the request path."""
+    from app.services.forecasting import run_forecast
+
+    run_forecast(uuid.UUID(tenant_id), uuid.UUID(run_id))
+
+
 @celery_app.task(name="app.workers.tasks.apply_cleaning")
 def apply_cleaning(tenant_id: str, version_id: str, selection: dict[str, str | None]) -> None:
     """Build the cleaned Parquet of a new version from the chosen fixes."""

@@ -87,6 +87,8 @@ class AnalysisModule(ABC):
     name: str
     title: str
     requires: frozenset[str]
+    # at least one of these roles must exist as well (empty means no such condition)
+    requires_any: frozenset[str] = frozenset()
 
     @abstractmethod
     def run(self, context: AnalysisContext) -> list[Insight]:

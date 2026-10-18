@@ -25,9 +25,13 @@ os.environ.update(
         "ACCESS_TOKEN_MINUTES": "30",
         "COOKIE_SECURE": "true",
         "RATE_LIMIT_ENABLED": "false",
+        # the pytest process is bigger than a worker; memory-guard tests inject their own RSS
+        "FORECAST_MEMORY_MB": "100000",
         "AUTO_ANALYZE": "false",
         "CORS_ORIGINS": "http://localhost:3000",
         "STORAGE_DIR": tempfile.mkdtemp(prefix="analyst-test-storage-"),
+        # forecasts log to a throwaway local store, never to a server
+        "MLFLOW_TRACKING_URI": Path(tempfile.mkdtemp(prefix="analyst-test-mlflow-")).as_uri(),
     }
 )
 
@@ -85,7 +89,7 @@ def db(database: URL) -> Iterator[Session]:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights RESTART IDENTITY CASCADE"
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs RESTART IDENTITY CASCADE"
             )
         )
     with get_sessionmaker()() as session:

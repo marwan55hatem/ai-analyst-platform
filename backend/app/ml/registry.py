@@ -2,6 +2,7 @@
 
 from app.ml.base import AnalysisModule
 from app.ml.modules.cohort import CohortRetentionModule
+from app.ml.modules.forecast import ForecastModule
 from app.ml.modules.kpis import KpiModule
 from app.ml.modules.pareto import ParetoModule
 from app.ml.modules.trend import TrendSeasonalityModule
@@ -11,6 +12,7 @@ _MODULES: list[type[AnalysisModule]] = [
     TrendSeasonalityModule,
     ParetoModule,
     CohortRetentionModule,
+    ForecastModule,
 ]
 
 

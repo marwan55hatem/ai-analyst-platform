@@ -41,7 +41,12 @@ ANALYSIS_ROUTES = {
     ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
     ("GET", "/api/v1/insights/{insight_id}"),
 }
-RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES
+FORECAST_ROUTES = {
+    ("POST", "/api/v1/datasets/{dataset_id}/forecast"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/forecast"),
+    ("GET", "/api/v1/forecast-runs/{forecast_run_id}"),
+}
+RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES | FORECAST_ROUTES
 # Routes that work without a token; every other route must answer 401 anonymously.
 PUBLIC_ROUTES = {
     ("GET", "/api/v1/health"),
@@ -56,6 +61,8 @@ def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -
     if "/columns/" in path:
         body = {"role": "revenue"}
         return client.request(method, path, headers=headers, json=body).status_code
+    if method == "POST" and path.endswith("/forecast"):
+        return client.request(method, path, headers=headers, json={}).status_code
     if path.endswith("/cleaning-plan/apply"):
         body = {"fixes": [{"id": "trim:region"}]}
         return client.request(method, path, headers=headers, json=body).status_code
@@ -134,6 +141,35 @@ def test_tenant_b_gets_404_for_every_tenant_a_analysis_route(
         client.get(f"{API}/analysis-runs/{run['id']}", headers=owner_a.headers).json()["status"]
         == "completed"
     )
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_forecast_route(
+    client: TestClient, tmp_path: Path
+) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    content, _ = make(tmp_path)
+    dataset_id, run, _ = analyze(client, owner_a, content)
+    queued = client.post(f"{API}/datasets/{dataset_id}/forecast", headers=owner_a.headers, json={})
+    assert queued.status_code == 202, queued.text
+    ids = {
+        "{dataset_id}": dataset_id,
+        "{run_id}": run["id"],
+        "{forecast_run_id}": queued.json()["id"],
+    }
+
+    for method, template in sorted(FORECAST_ROUTES):
+        path = template
+        for key, value in ids.items():
+            path = path.replace(key, value)
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+        assert _call(client, method, path, owner_a.headers) in {200, 202}, (method, path)
+
+    # Tenant B cannot see tenant A's forecast, and tenant A's result is untouched.
+    own = client.get(f"{API}/forecast-runs/{queued.json()['id']}", headers=owner_a.headers).json()
+    assert own["status"] == "completed" and own["result"]["insights"]
 
 
 def test_query_layer_refuses_other_tenants_version(client: TestClient, db: Session) -> None:

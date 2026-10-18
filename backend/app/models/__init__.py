@@ -2,6 +2,7 @@
 
 from app.models.analysis import AnalysisRun, AnalysisStatus, Insight
 from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionStatus
+from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
 from app.models.refresh_token import RefreshToken
 from app.models.tenant import Tenant
@@ -15,6 +16,7 @@ __all__ = [
     "ColumnProfile",
     "Dataset",
     "DatasetVersion",
+    "ModelRun",
     "ProfileStatus",
     "RefreshToken",
     "Role",

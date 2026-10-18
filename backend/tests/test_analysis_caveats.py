@@ -64,7 +64,8 @@ def test_a_clean_dataset_has_no_caveats(client: TestClient, tmp_path: Path) -> N
     content, _ = make(tmp_path)
     _, _, insights = analyze(client, owner, content)
     for item in _details(client, owner, insights):
-        assert item["payload"]["warnings"] == [], item["title"]
+        if item["module"] != "forecast":  # forecasts carry honest model notes, not data caveats
+            assert item["payload"]["warnings"] == [], item["title"]
         assert item["payload"]["excluded_rows"] == 0
 
 
