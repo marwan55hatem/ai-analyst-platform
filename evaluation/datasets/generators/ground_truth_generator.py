@@ -364,8 +364,14 @@ def generate(
                     _money(r["cost_cents"]),
                 ]
             )
-    json_path.write_text(json.dumps(facts, indent=2, ensure_ascii=False), encoding="utf-8")
+    _write_json(json_path, facts, ensure_ascii=False)
     return csv_path, json_path, facts
+
+
+def _write_json(path: Path, facts: dict[str, Any], ensure_ascii: bool = True) -> None:
+    """Write facts with LF newlines on every OS (write_text would emit CRLF on Windows)."""
+    with path.open("w", newline="\n", encoding="utf-8") as handle:
+        handle.write(json.dumps(facts, indent=2, ensure_ascii=ensure_ascii))
 
 
 def generate_daily(
@@ -396,7 +402,7 @@ def generate_daily(
         writer.writerow(["order_date", "revenue"])
         for day, cents in rows:
             writer.writerow([day.isoformat(), _money(cents)])
-    json_path.write_text(json.dumps(facts, indent=2), encoding="utf-8")
+    _write_json(json_path, facts)
     return csv_path, json_path, facts
 
 
