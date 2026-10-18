@@ -37,6 +37,14 @@ def profile_dataset(tenant_id: str, version_id: str) -> None:
     run_profile(uuid.UUID(tenant_id), uuid.UUID(version_id))
 
 
+@celery_app.task(name="app.workers.tasks.run_analysis")
+def run_analysis_task(tenant_id: str, run_id: str) -> None:
+    """Run the analysis modules of a pending analysis run."""
+    from app.services.analysis import run_analysis
+
+    run_analysis(uuid.UUID(tenant_id), uuid.UUID(run_id))
+
+
 @celery_app.task(name="app.workers.tasks.apply_cleaning")
 def apply_cleaning(tenant_id: str, version_id: str, selection: dict[str, str | None]) -> None:
     """Build the cleaned Parquet of a new version from the chosen fixes."""

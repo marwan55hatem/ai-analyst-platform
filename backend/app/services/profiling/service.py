@@ -8,6 +8,7 @@ import structlog
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
 from app.db.repository import (
     ColumnProfileRepository,
@@ -116,6 +117,10 @@ def _profile_and_store(db: Session, tenant_id: uuid.UUID, version: DatasetVersio
         score=result.quality.score,
         columns=len(result.columns),
     )
+    if get_settings().auto_analyze:
+        from app.services.analysis import enqueue_analysis  # local import: it imports this module
+
+        enqueue_analysis(db, tenant_id, version)
 
 
 def enqueue_profile(db: Session, tenant_id: uuid.UUID, version: DatasetVersion) -> None:

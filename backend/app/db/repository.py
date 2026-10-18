@@ -4,11 +4,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
+from app.models.analysis import AnalysisRun, AnalysisStatus, Insight
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.profile import CleaningLog, ColumnProfile
 from app.models.user import Role, User
@@ -169,3 +170,79 @@ class DatasetVersionRepository(TenantRepository[DatasetVersion]):
             .where(DatasetVersion.id == version_id, Dataset.deleted_at.is_(None))
         )
         return self.session.scalars(stmt).first()
+
+
+class AnalysisRunRepository(TenantRepository[AnalysisRun]):
+    """Analysis runs of one tenant."""
+
+    model = AnalysisRun
+
+    def active_for_version(self, version_id: uuid.UUID) -> AnalysisRun | None:
+        """Return a pending or running run of a version, if any."""
+        stmt = self._select().where(
+            AnalysisRun.dataset_version_id == version_id,
+            AnalysisRun.status.in_([AnalysisStatus.pending.value, AnalysisStatus.running.value]),
+        )
+        return self.session.scalars(stmt).first()
+
+    def latest_for_version(self, version_id: uuid.UUID) -> AnalysisRun | None:
+        """Return the newest run of a version."""
+        stmt = (
+            self._select()
+            .where(AnalysisRun.dataset_version_id == version_id)
+            .order_by(AnalysisRun.created_at.desc())
+        )
+        return self.session.scalars(stmt).first()
+
+    def list_for_dataset(
+        self, dataset_id: uuid.UUID, *, version: int | None = None, limit: int = 20
+    ) -> list[tuple[AnalysisRun, int, int]]:
+        """Return (run, version number, insight count) of a dataset's runs, newest first."""
+        count = func.count(Insight.id)
+        stmt = (
+            select(AnalysisRun, DatasetVersion.version, count)
+            .join(DatasetVersion, DatasetVersion.id == AnalysisRun.dataset_version_id)
+            .outerjoin(Insight, Insight.run_id == AnalysisRun.id)
+            .where(AnalysisRun.tenant_id == self.tenant_id, DatasetVersion.dataset_id == dataset_id)
+            .group_by(AnalysisRun.id, DatasetVersion.version)
+            .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id)
+            .limit(limit)
+        )
+        if version is not None:
+            stmt = stmt.where(DatasetVersion.version == version)
+        return [(run, number, int(n)) for run, number, n in self.session.execute(stmt)]
+
+
+class InsightRepository(TenantRepository[Insight]):
+    """Insights of one tenant."""
+
+    model = Insight
+
+    def for_run(
+        self,
+        run_id: uuid.UUID,
+        *,
+        type: str | None = None,
+        confidence: str | None = None,
+        module: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Insight]:
+        """Return a run's insights, highest impact first, with optional filters."""
+        stmt = self._select().where(Insight.run_id == run_id)
+        if type is not None:
+            stmt = stmt.where(Insight.type == type)
+        if confidence is not None:
+            stmt = stmt.where(Insight.confidence == confidence)
+        if module is not None:
+            stmt = stmt.where(Insight.module == module)
+        stmt = stmt.order_by(Insight.impact_score.desc(), Insight.id).limit(limit).offset(offset)
+        return list(self.session.scalars(stmt))
+
+    def delete_for_version(self, version_id: uuid.UUID) -> None:
+        """Remove every insight of a version (a re-run replaces them)."""
+        self.session.execute(
+            delete(Insight).where(
+                Insight.tenant_id == self.tenant_id, Insight.dataset_version_id == version_id
+            )
+        )

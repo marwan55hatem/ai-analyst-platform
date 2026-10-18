@@ -58,7 +58,7 @@ insights, model_runs, conversations, messages, reports.
 - [x] Step 1 backend core and auth — tenant-isolated auth (argon2, JWT + rotating refresh cookie), team roles, Redis rate limiting, error envelope, Alembic schema, refresh tokens scoped by tenant, 64 tests with per-package coverage gate
 - [x] Step 2 datasets — CSV/TSV/XLSX upload to tenant-scoped storage, streaming Parquet ingestion via Celery (all-strings fallback), versions, soft delete, and a locked-down SafeQueryService (sqlglot + DuckDB lockdown, 60+ abuse tests), 293 tests
 - [x] Step 3 profiling and cleaning — separate profile stage (DuckDB, memory-limited) with column stats, EN/AR role rules + LLMClient/FakeLLMClient refinement, PII masking, 0-100 quality score, non-destructive cleaning plan that creates a new version, identifier columns kept as text, 549+ tests with a profiling coverage gate
-- [ ] Step 4 analytics pipeline
+- [x] Step 4 analytics pipeline — AnalysisModule framework + registry + capability detection, KPI / trend+STL seasonality / Pareto+dead stock / cohort retention modules on a hardened per-run DuckDB table, impact score, data-quality caveats, net-vs-refund rules, auto-run after profiling, /analyze, runs and insights endpoints, ground-truth dataset recovered exactly, 600+ tests with app/ml coverage gate
 - [ ] Step 5 forecasting
 - [ ] Step 6 anomalies and segmentation
 - [ ] Step 7 churn, drivers, what-if

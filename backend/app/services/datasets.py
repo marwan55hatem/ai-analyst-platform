@@ -13,9 +13,11 @@ from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
 from app.db.repository import DatasetRepository, DatasetVersionRepository
 from app.db.session import get_sessionmaker
+from app.models.analysis import AnalysisRun, AnalysisStatus
 from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionStatus
 from app.models.user import User
 from app.services import ingest, storage, upload_validation
+from app.services.analysis import ANALYSIS_STUCK_ERROR
 from app.services.profiling.service import PROFILE_STUCK_ERROR, enqueue_profile
 
 logger = structlog.get_logger()
@@ -242,10 +244,10 @@ STUCK_ERROR = "Processing timed out. Please upload again."
 def fail_stuck_ingestions(
     db: Session, *, now: datetime | None = None, stuck_minutes: int | None = None
 ) -> int:
-    """Mark versions stuck in `processing` (and profiles stuck `running`) as failed.
+    """Mark versions stuck in `processing` (and profiles or analysis runs stuck) as failed.
 
-    Returns how many rows were failed in total. A stuck profile fails only the profile; the
-    version itself stays ready.
+    Returns how many rows were failed in total. A stuck profile fails only the profile and a
+    stuck analysis run only that run; the version itself stays ready.
 
     This is a maintenance job that runs across all tenants (it is not request-scoped), so it
     queries the table directly. Versions without a start time (rows from before the column
@@ -281,5 +283,16 @@ def fail_stuck_ingestions(
         logger.warning(
             "profile_timed_out", version_id=str(version.id), tenant_id=str(version.tenant_id)
         )
+    stuck_runs = db.scalars(
+        select(AnalysisRun).where(
+            AnalysisRun.status.in_([AnalysisStatus.running.value, AnalysisStatus.pending.value]),
+            func.coalesce(AnalysisRun.started_at, AnalysisRun.created_at) < cutoff,
+        )
+    ).all()
+    for run in stuck_runs:
+        run.status = AnalysisStatus.failed.value
+        run.error = ANALYSIS_STUCK_ERROR
+        run.finished_at = datetime.now(UTC)
+        logger.warning("analysis_timed_out", run_id=str(run.id), tenant_id=str(run.tenant_id))
     db.commit()
-    return len(stuck) + len(stuck_profiles)
+    return len(stuck) + len(stuck_profiles) + len(stuck_runs)

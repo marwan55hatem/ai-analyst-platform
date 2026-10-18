@@ -1,6 +1,7 @@
 """Tenant isolation: tenant B can never see or change tenant A's data."""
 
 import re
+from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from app.db.repository import UserRepository
 from app.main import app
 from app.models.user import Role
 from tests.dataset_helpers import sample, upload_ready
+from tests.ground_truth_fixtures import analyze, make
 from tests.helpers import API, add_member, register
 
 # Tenant-scoped routes that take a resource id. A new such route must be added here
@@ -31,7 +33,15 @@ DATASET_ROUTES = {
     ("POST", "/api/v1/datasets/{dataset_id}/profile/rerun"),
     ("PUT", "/api/v1/datasets/{dataset_id}/columns/{name}/role"),
 }
-RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES
+ANALYSIS_ROUTES = {
+    ("GET", "/api/v1/datasets/{dataset_id}/capabilities"),
+    ("POST", "/api/v1/datasets/{dataset_id}/analyze"),
+    ("GET", "/api/v1/datasets/{dataset_id}/analysis-runs"),
+    ("GET", "/api/v1/analysis-runs/{run_id}"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
+    ("GET", "/api/v1/insights/{insight_id}"),
+}
+RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES
 # Routes that work without a token; every other route must answer 401 anonymously.
 PUBLIC_ROUTES = {
     ("GET", "/api/v1/health"),
@@ -94,6 +104,36 @@ def test_tenant_b_gets_404_for_every_tenant_a_dataset_route(client: TestClient) 
     assert detail["status"] == "ready" and len(detail["versions"]) == 1
     assert client.get(f"{API}/datasets", headers=owner_b.headers).json() == []
     assert len(client.get(f"{API}/datasets", headers=owner_a.headers).json()) == 1
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_analysis_route(
+    client: TestClient, tmp_path: Path
+) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    content, _ = make(tmp_path)
+    dataset_id, run, insights = analyze(client, owner_a, content)
+    assert insights
+    ids = {
+        "{dataset_id}": dataset_id,
+        "{run_id}": run["id"],
+        "{insight_id}": insights[0]["id"],
+    }
+
+    for method, template in sorted(ANALYSIS_ROUTES):
+        path = template
+        for key, value in ids.items():
+            path = path.replace(key, value)
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+        assert _call(client, method, path, owner_a.headers) in {200, 202}, (method, path)
+
+    # Tenant B ran nothing, so its own queries stay empty and tenant A's run is unchanged.
+    assert (
+        client.get(f"{API}/analysis-runs/{run['id']}", headers=owner_a.headers).json()["status"]
+        == "completed"
+    )
 
 
 def test_query_layer_refuses_other_tenants_version(client: TestClient, db: Session) -> None:
