@@ -21,12 +21,15 @@ from app.ml.roles import RoleMap
 from app.services.profiling.parsing import date_sql, number_sql, quote_ident, quote_literal
 
 TABLE = "data"
+# 1-based position of each row in the version's stored data (row-level findings point at it)
+ROW_NUMBER = "__row_number"
 _NUMERIC = ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE", "DECIMAL")
 _DECIMAL_TYPES = {
     "revenue": "DECIMAL(24,4)",
     "cost": "DECIMAL(24,4)",
     "quantity": "DECIMAL(12,4)",
     "price": "DECIMAL(18,4)",
+    "discount": "DECIMAL(18,4)",
 }
 _TEXT_ROLES = ("customer_id", "order_id", "product", "category", "region", "channel")
 
@@ -43,6 +46,17 @@ class AnalysisConnection:
         cursor = self._con.execute(sql)
         names = [d[0] for d in cursor.description]
         return [dict(zip(names, row, strict=True)) for row in cursor.fetchall()]
+
+    def batches(self, sql: str, size: int) -> Iterator[list[dict[str, Any]]]:
+        """Run a query and yield its rows in batches, so large results never sit in memory."""
+        cursor = self._con.cursor()
+        try:
+            cursor.execute(sql)
+            names = [d[0] for d in cursor.description]
+            while chunk := cursor.fetchmany(size):
+                yield [dict(zip(names, row, strict=True)) for row in chunk]
+        finally:
+            cursor.close()
 
     def one(self, sql: str) -> dict[str, Any]:
         """Run a query that returns one row."""
@@ -118,17 +132,21 @@ def open_analysis(parquet: Path, roles: RoleMap) -> Iterator[AnalysisConnection]
         },
     )
     try:
-        source = f"read_parquet({quote_literal(str(parquet))})"
+        plain = f"read_parquet({quote_literal(str(parquet))})"
         types = {
-            str(r[0]): str(r[1]) for r in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()
+            str(r[0]): str(r[1]) for r in con.execute(f"DESCRIBE SELECT * FROM {plain}").fetchall()
         }
         wanted = _column_roles(roles)
         missing = [n for n in wanted if n not in types]
         if missing:
             raise ValueError(f"columns missing from the file: {', '.join(missing)}")
         items = [_select_item(n, r, types[n], roles) for n, r in wanted.items()]
-        if not items:
-            items = ["1 AS _unused"]
+        if "file_row_number" in types:  # a user column of that name hides DuckDB's virtual one
+            source = plain
+            items.append(f"row_number() OVER () AS {ROW_NUMBER}")
+        else:
+            source = f"read_parquet({quote_literal(str(parquet))}, file_row_number = true)"
+            items.append(f"file_row_number + 1 AS {ROW_NUMBER}")
         con.execute(f"CREATE TABLE {TABLE} AS SELECT {', '.join(items)} FROM {source}")
         con.execute("SET enable_external_access=false")
         con.execute("SET lock_configuration=true")

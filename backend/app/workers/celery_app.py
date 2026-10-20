@@ -1,8 +1,10 @@
 """Celery application and beat schedule."""
 
-from celery import Celery
+from typing import Any
 
-from app.core.config import get_settings
+from celery import Celery, signals
+
+from app.core.config import get_settings, warn_derived_pseudonym_secret
 
 settings = get_settings()
 
@@ -24,3 +26,9 @@ celery_app.conf.update(
         },
     },
 )
+
+
+@signals.worker_init.connect
+def startup_checks(**_: Any) -> None:
+    """Warn once per worker about settings that are unsafe in production."""
+    warn_derived_pseudonym_secret(get_settings())

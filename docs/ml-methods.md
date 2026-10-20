@@ -97,6 +97,13 @@ than 12 medium, otherwise high. Seasonality without STL (under 24 months) is alw
 | `pareto` | revenue + product/category/region/channel | per dimension: ABC classes (A up to 80% cumulative share, B up to 95%, C the rest), top contributors, long tail (classes B and C); dead stock: products whose last positive sale is more than N days (default 90, `dead_stock_days`) before the dataset's last date. |
 | `cohort_retention` | customer_id, date | monthly cohorts by first positive purchase month, retention matrix (offsets 0-12), customer-weighted month-1 and month-3 retention over cohorts old enough to observe. The incomplete last month is left out. |
 | `forecast` | date + (revenue or quantity) | rolling-origin backtested forecast of net revenue (or quantity) for the whole business and its top 5 categories (or products), default 6 periods, with 80% and 95% ranges. See [Forecast](#forecast). |
+| `anomalies` | date, revenue (richer with order id, quantity, price, discount, dimensions) | unusual days (weeks, months) with likely contributors, lasting level shifts, and row-level oddities. See [Anomalies](#anomalies). |
+| `segmentation` | customer_id, date, revenue; 100+ customers | RFM segments with rule-based suggestions, K-Means customer groups with a stability check, and paginated per-customer assignments. See [Segmentation](#segmentation). |
+
+Modules may also declare a **data requirement** (`data_requirement(DataFacts)`), read from the stored
+profile without touching the data: too little history, too coarse dates or too few customers. The
+capability then reads, for example, "only 40 customers; customer segmentation needs at least 100, so
+customer segmentation is skipped", and the run records the module as `skipped` with the same reason.
 
 ## Statistical notes
 
@@ -198,3 +205,158 @@ with a short deadline: an unreachable server only adds a warning.
   data (weather, macro), no reconciliation (group forecasts need not add up to the total). Seasonality
   is learned from the history only, so a moving calendar (Ramadan shifts about 11 days a year) is smeared
   across neighbouring months.
+
+## Anomalies
+
+`app/ml/anomaly/` (maths and row checks) and `app/ml/modules/anomalies.py` (the module). Everything is
+aggregated in DuckDB first; pandas and scikit-learn only see one value per period (or a bounded row
+sample). Text always says these are **findings from the data, not proven causes**.
+
+### Method by history
+
+| History (primary date, net revenue per period) | Method | Confidence |
+| --- | --- | --- |
+| Daily (also irregular) data under 56 days; weekly or monthly data under 26 periods; quarterly or yearly dates | skipped, with the reason in `/capabilities` | - |
+| Daily, 56-89 days | STL (period 7, seasonal window 31, robust) on log1p daily revenue; robust z = 0.6745 (r - median) / MAD; a day counts at \|z\| >= 3.5 | low |
+| Daily, 90+ days | as above, **and** an Isolation Forest must flag the same day (consensus) | medium; high with a year or more |
+| Weekly or monthly, 26+ periods | residuals from a centred 5-period rolling median, same z rule (forest from 90 periods) | as above |
+
+* **Scale.** Log scale unless more than 5% of periods are zero (then raw values, so normal quiet days
+  are not "drops"). Missing periods count as zero sales.
+* **Isolation Forest.** 200 trees, fixed seed (`ML_SEED`), on the STL residuals of revenue, orders,
+  average order value, units and the average discount rate, so it sees "unusual for this weekday and
+  this time of year", not "a busy season". Its contamination is an **alert budget**: about 1% of periods
+  (at least 3, at most 5%). Days only one method finds are listed in `watch_list` (z only / forest
+  only), never as anomalies.
+* **Why consensus.** At around 7 orders a day, log daily revenue is heavy-tailed (one large order moves a
+  day a lot), so \|z\| >= 3.5 alone fired on 40+ ordinary days of a 2-year test file. Requiring both
+  detectors keeps to the alert budget and still finds the planted days.
+* **Events.** Consecutive flagged periods in the same direction form one event: spike (z > 0) or drop
+  (z < 0). Events are ranked by \|actual - expected\| x length (magnitude x persistence); the top 5 get an
+  `anomaly` insight each, and all of them are in `anomaly_summary.payload.events`.
+* **Likely contributors (drill-down).** For each top event and each dimension (product, category, region,
+  channel): revenue per period during the event minus the average per period over the 28 days (4 weeks,
+  3 months) before it, leaving out other flagged days. The dimension whose top item explains the largest
+  share of the change is named in the text ("Likely contributors by product: Item-12 (... a day, 92% of
+  the change)"); every dimension's SQL is evidence. Shares are of the net change, so one item can show
+  more than 100% when others moved the other way that day.
+* **Level shifts** (daily data, 65+ complete Monday-Sunday weeks). Year-over-year log ratios of weekly
+  values take the yearly season out; a CUSUM split (binary segmentation, two levels deep) finds where the
+  ratio moves to a new level. A shift counts when its t-like statistic (difference of segment means over
+  a noise level estimated from first differences) is >= 3.5, the change is >= 15% and both sides have 4+
+  weeks. It runs on weekly **orders** and on weekly revenue after capping single big days (3 robust
+  deviations from a 29-day rolling median), because weekly revenue of a small business is dominated by a
+  few large orders. A real shift reappears mirrored 52 weeks later (the new level becomes the comparison
+  base), so an opposite change 52 +/- 3 weeks after an accepted one is ignored.
+* **Row-level checks** (SQL over every row; the counts are evidence): zero quantity; negative quantity
+  with positive revenue; unusual discounts (rate above 50%, or above median + 3.5 robust deviations when
+  the rates vary); extreme prices (at least 3x or at most 1/3 of the product's median unit price).
+  Negative quantity with negative revenue is counted as **returns**, not anomalies. Extreme-price rows are
+  ranked by an Isolation Forest on log price, log quantity, log price ratio and discount rate, trained on
+  a deterministic hash sample of `ANOMALY_ROW_SAMPLE` rows plus the rule candidates (a tree that never
+  sees an odd price cannot isolate one). Up to 10 sample rows per check are shown: row number, date,
+  product, quantity, price, revenue, discount; never customer ids or personal data. Row numbers refer to
+  the stored data of the dataset version (version number and id are in the payload), not necessarily to
+  the row numbers of the original upload.
+* **Discount column.** A `discount` role is read as a fraction when its largest value is <= 1, as a
+  percentage when <= 100, otherwise as an amount (rate = discount / (\|revenue\| + discount)).
+* **Money effect.** Event: actual - expected over its periods. Level shift: revenue since the shift x
+  change / (1 + change). Summary: sum of \|change\| over all events. Row checks: 10% of the sample rows'
+  revenue (descriptive).
+* **Limits.** `ANOMALY_MAX_SECONDS`: when reached, the forest is skipped (every anomaly then rests on the
+  z-score alone, low confidence) and the row checks are skipped, each with a warning.
+
+### Evaluation on planted data
+
+`ground_truth_generator.py --anomalies` plants 3 spikes (about 12x a normal day; one of them is bulk orders
+of a single product) and 2 drops (one order left) on known dates, a +50% level shift from 2024-06-01,
+6 unusual discounts, 4 zero quantities and 5 extreme prices. The tests require, for seeds 11 and 5,
+recall >= 0.8 and precision >= 0.6 (a match is within one day), the level shift within 7 days, the single
+product named first with more than half of the change, and exact row-level counts and row numbers.
+
+Measured with this code on 2-year files: seeds 11, 5, 77 and 101 recall 1.0 with precision 0.62-0.71;
+seed 23 recall 0.8 with precision 0.57; seed 3 recall 0.6. Over 7 seeds: recall 0.94, precision 0.66.
+The false positives are genuine single-day extremes (one very large order). On 3-year files precision
+drops to about 0.5, because the 1% alert budget lets more natural extremes in while the number of planted
+days stays 5. The level shift was found at the right week in all 8 planted files (2 and 3 years) and in
+none of the 8 files without one.
+
+### Statistical caveats (anomalies)
+
+* Spikes of 12x were planted because a day of ~7 orders swings about +/-60% on its own (robust SD of log
+  daily revenue about 0.5); at higher volumes smaller changes become detectable.
+* Testing ~730 days is a multiple-comparisons problem: the forest's alert budget, not a p-value, bounds
+  how many days are reported.
+* The 3.5 level-shift threshold is roughly a 1% false-alarm level for a max-over-splits statistic on
+  independent noise; autocorrelated weekly noise and the up to 3 splits tested make it less strict.
+* A drill-down shows where the change happened, not why: contributors are associations.
+
+## Segmentation
+
+`app/ml/segmentation/` (RFM SQL and clustering) and `app/ml/modules/segments.py` (the module). Needs
+customer_id, date and revenue, and at least 100 customers with a positive purchase (fewer: skipped with
+"only N customers; customer segmentation needs at least 100"). Segments **describe** behaviour; they do
+not explain it, and every recommended action is a rule-based **suggestion**.
+
+### RFM (all in DuckDB SQL)
+
+* Over positive purchases only (refunds do not make a customer more or less active): recency = days from
+  the last purchase to the dataset's last sale date, frequency = distinct orders (rows when there is no
+  order id), monetary = positive spend, tenure = days since the first purchase.
+* Score = 1 + floor(5 x (RANK - 1) / n): customers with the same value share a score (every one-time
+  buyer gets F = 1, so the F quintiles are uneven); the most recent buyers get R = 5.
+* Segment from R and F (explicit table `SEGMENT_MAP`, all 25 cells):
+
+  | R \ F | 1 | 2 | 3 | 4 | 5 |
+  | --- | --- | --- | --- | --- | --- |
+  | 5 | New | Potential loyalists | Potential loyalists | Champions | Champions |
+  | 4 | New | Potential loyalists | Potential loyalists | Champions | Champions |
+  | 3 | Hibernating | Hibernating | Loyal | Loyal | Loyal |
+  | 2 | Hibernating | Hibernating | At risk | At risk | At risk |
+  | 1 | Lost | Lost | At risk | At risk | At risk |
+
+* Suggestions (`ACTIONS`): Champions: reward, referrals; Loyal: upsell, loyalty programme; Potential
+  loyalists: second-purchase incentive; New: onboarding; At risk: win-back offer; Hibernating: low-cost
+  reactivation; Lost: one win-back try, then stop spending. Stored as
+  `{"text": "Suggestion: ...", "kind": "suggestion"}`.
+* Money effect: yearly spend of At risk and Hibernating customers (spend x 365 / max(tenure, 365)), the
+  revenue at risk.
+
+### K-Means groups
+
+* Features per customer: recency, frequency, spend, average order value, tenure; log1p (all are skewed),
+  then standardized. Fitted on all customers, or on a deterministic hash sample of
+  `SEGMENT_MAX_CUSTOMERS`; every customer is then assigned to the nearest centre in batches of 5,000.
+* k from 3 to 8 by silhouette score (on up to 5,000 customers), 10 starts, fixed seed; ties go to the
+  smaller k. Clusters are renumbered by average spend, highest first.
+* **Stability:** `SEGMENT_BOOTSTRAP_ROUNDS` (20) refits on bootstrap resamples (up to 5,000 customers each)
+  are compared with the base labels on a fixed reference set by the adjusted Rand index. Median ARI >= 0.8
+  is high confidence, >= 0.6 medium, otherwise (or with fewer than 5 rounds) low; then capped by the number
+  of customers (100-999: at most medium) and the data-quality caveats.
+* **Names** are deterministic: value tier (High / Mid / Low value: the cluster's median spend against the
+  33rd and 67th percentiles of all customers), then recency (recent / lapsing / lapsed), then frequency
+  (frequent / occasional / rare / one-time buyers) only when two names would collide, then a number. Each
+  profile has size, revenue share, averages, median spend, the dominant RFM segment and that segment's
+  suggestion.
+* **Limits:** `SEGMENT_MAX_SECONDS` stops the k search early (k = 3 at least) and the bootstrap rounds,
+  each with a warning.
+* Planted check (`--segments`: VIP, regular, lapsed after September 2023, new in the last 90 days; 566
+  buyers): the clusters recover the groups with an adjusted Rand index of at least 0.6 (test); the lapsed
+  group lands in At risk / Hibernating / Lost and the VIPs in Champions / Loyal (over 90% each).
+
+### Assignments and privacy
+
+* Per-customer rows go to `segment_assignments` (tenant-scoped, replaced on re-run like insights) and are
+  served only by `GET /analysis-runs/{id}/segments` (paginated, filter by segment or cluster).
+* Insight text, charts and evidence hold counts and averages only, never customer ids; PII-flagged
+  columns (email, phone) are never loaded into the analysis table.
+* When the customer_id column itself is flagged as personal data (for example a user marks an email
+  column as the customer id), the raw value is never stored: the key is
+  `cust_` + HMAC-SHA256(`PSEUDONYM_SECRET`, tenant id | value)[:16], stable per tenant.
+
+### Statistical caveats (segmentation)
+
+* K-Means always returns groups and favours round, similar-sized ones; k is at least 3 even when the data
+  has less structure. A high ARI means the grouping is reproducible, not that it is "true".
+* RFM quintiles are relative to this dataset's customers; the same customer can change segment as the
+  data grows.

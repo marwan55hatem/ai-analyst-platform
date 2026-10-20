@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from app.ml.forecasting.budget import Budget, reason_text
+from app.ml.budget import Budget, reason_text
 from app.ml.forecasting.confidence import Confidence, derive_confidence
 from app.ml.forecasting.metrics import coverage, mae, mase, naive_scale, smape
 from app.ml.forecasting.models import (

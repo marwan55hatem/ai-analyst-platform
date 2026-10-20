@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from app.ml.base import AnalysisModule
+from app.ml.base import AnalysisModule, DataFacts
 from app.ml.roles import RoleMap
 
 _MISSING_PHRASE = {
@@ -25,8 +25,8 @@ class Capability:
     notes: list[str] = field(default_factory=list)
 
 
-def check(module: AnalysisModule, roles: RoleMap) -> Capability:
-    """Decide whether a module can run with this role map."""
+def check(module: AnalysisModule, roles: RoleMap, facts: DataFacts | None = None) -> Capability:
+    """Decide whether a module can run with this role map (and, if known, this much data)."""
     missing = [r for r in sorted(module.requires) if not roles.has(r)]
     if missing:
         phrases = " and ".join(_MISSING_PHRASE.get(r, f"no {r} column") for r in missing)
@@ -41,9 +41,16 @@ def check(module: AnalysisModule, roles: RoleMap) -> Capability:
             False,
             f"no {options} column, so {module.title.lower()} is skipped",
         )
+    too_small = module.data_requirement(facts) if facts is not None else None
+    if too_small:
+        return Capability(
+            module.name, module.title, False, f"{too_small}, so {module.title.lower()} is skipped"
+        )
     return Capability(module.name, module.title, True, None, module.notes(roles))
 
 
-def detect(modules: list[AnalysisModule], roles: RoleMap) -> list[Capability]:
+def detect(
+    modules: list[AnalysisModule], roles: RoleMap, facts: DataFacts | None = None
+) -> list[Capability]:
     """Return the capability of every module."""
-    return [check(m, roles) for m in modules]
+    return [check(m, roles, facts) for m in modules]

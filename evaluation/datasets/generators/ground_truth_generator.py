@@ -14,13 +14,20 @@ saved as JSON next to the CSV:
 `refunds=True` adds negative rows (returns) with known count and total. `lang="ar"` writes the
 same data with Arabic column names, to prove roles (not names) drive the modules.
 
+`anomalies=True` (CLI `--anomalies`) plants 5 dated point anomalies (3 spikes, one of them
+caused by bulk orders of a single product, and 2 drops), a +50% level shift and row-level oddities
+(unusual discounts in an extra `discount_pct` column, zero quantities, extreme prices).
+`segments=True` (CLI `--segments`) replaces the random customer pool with 4 behavioural groups
+(VIP, regular, lapsed, new) whose members are listed in the facts. Both use their own random
+streams and only change the output when switched on.
+
 `years=3` (CLI `--years 3`) extends the history to 2023-2025 with a PLANTED upward trend
 (`TREND_PER_YEAR`) on top of the same monthly seasonality, so the last year can be held out when
 testing forecasts. The default (2 years) is byte-for-byte what Step 4 expects. `--daily-series`
 writes a separate short daily file with a planted trend and weekly seasonality.
 
 Run `python ground_truth_generator.py <output_dir> [--lang ar] [--refunds] [--years 3]
-[--daily-series] [--seed N]` to write the files.
+[--anomalies] [--segments] [--daily-series] [--seed N]` to write the files.
 """
 
 import csv
@@ -55,6 +62,31 @@ DAILY_BASE_CENTS = 500_000
 DAILY_GROWTH_PER_DAY = 0.002
 DAILY_NOISE = 0.06
 
+# Planted anomalies (all dates fall inside every supported history, which starts in 2023)
+SPIKES = (date(2023, 3, 14), date(2023, 8, 22), date(2024, 2, 20))
+DROPS = (date(2023, 5, 9), date(2023, 10, 17))
+CAUSE_PRODUCT = "Item-12"
+CAUSE_SPIKE = date(2023, 8, 22)
+SPIKE_FACTOR = 12.0
+LEVEL_SHIFT = date(2024, 6, 1)
+LEVEL_SHIFT_FACTOR = 1.5
+UNUSUAL_DISCOUNTS = 6
+ZERO_QUANTITY_ROWS = 4
+EXTREME_PRICE_ROWS = 5
+EXTREME_PRICE_FACTOR = 20
+NORMAL_DISCOUNTS = [0, 0, 0, 5, 10]
+# Planted customer groups: (name, members, orders per member over its active window)
+GROUPS: tuple[tuple[str, int, float], ...] = (
+    ("vip", 40, 25.0),
+    ("regular", 160, 8.0),
+    ("lapsed", 160, 5.0),
+    ("new", 220, 1.5),
+)
+LAPSED_UNTIL = date(2023, 9, 30)
+NEW_DAYS = 90
+ANOMALY_SEED_OFFSET = 7919
+SEGMENT_SEED_OFFSET = 104729
+
 HEADERS = {
     "en": [
         "order_id",
@@ -83,6 +115,7 @@ HEADERS = {
         "التكلفة",
     ],
 }
+DISCOUNT_HEADER = {"en": "discount_pct", "ar": "نسبة_الخصم"}
 KEYS = [
     "order_id",
     "order_date",
@@ -129,7 +162,13 @@ def _end_date(years: int) -> date:
     return date(START.year + years - 1, 12, 31)
 
 
-def _build_rows(seed: int, refunds: bool, years: int = DEFAULT_YEARS) -> list[Row]:
+def _build_rows(
+    seed: int,
+    refunds: bool,
+    years: int = DEFAULT_YEARS,
+    anomalies: bool = False,
+    segments: bool = False,
+) -> tuple[list[Row], dict[str, Any]]:
     rnd = random.Random(seed)
     products = _products(rnd)
     pool = [f"C{n:04d}" for n in range(1, CUSTOMER_POOL + 1)]
@@ -139,18 +178,26 @@ def _build_rows(seed: int, refunds: bool, years: int = DEFAULT_YEARS) -> list[Ro
     order_no = 100000
     day = START
     end = END if years == DEFAULT_YEARS else _end_date(years)
+    groups = _Groups(random.Random(seed + SEGMENT_SEED_OFFSET), end) if segments else None
     while day <= end:
         live = [p for p in products if not (p["name"] in DEAD_PRODUCTS and day > DEAD_AFTER)]
         weights = [p["weight"] for p in live]
         for _ in range(_orders_on(day, rnd, years)):
             order_no += 1
-            if pool and (not seen or rnd.random() < NEW_CUSTOMER_RATE):
+            group = None
+            if groups is not None:
+                group, customer = groups.pick(day)
+            elif pool and (not seen or rnd.random() < NEW_CUSTOMER_RATE):
                 customer = pool.pop()
                 seen.append(customer)
             else:
                 customer = rnd.choice(seen)
             product = rnd.choices(live, weights)[0]
             quantity = rnd.choices([1, 2, 3, 4, 5], [5, 3, 2, 1, 1])[0]
+            if group == "vip":
+                quantity *= 3
+            elif group == "new":
+                quantity = 1
             revenue = quantity * product["price_cents"]
             rows.append(
                 {
@@ -168,9 +215,136 @@ def _build_rows(seed: int, refunds: bool, years: int = DEFAULT_YEARS) -> list[Ro
                 }
             )
         day += timedelta(days=1)
+    planted: dict[str, Any] = {}
+    if anomalies:
+        rows, planted["anomalies"] = _plant_anomalies(
+            rows, products, random.Random(seed + ANOMALY_SEED_OFFSET), order_no
+        )
+    if groups is not None:
+        planted["segments"] = groups.members(rows)
     if refunds:
         rows.extend(_refund_rows(rows, rnd, end))
-    return rows
+    return rows, planted
+
+
+class _Groups:
+    """Planted customer groups: who may buy on a day, and how often each group buys."""
+
+    def __init__(self, rnd: random.Random, end: date) -> None:
+        self.rnd = rnd
+        ids = [f"C{n:04d}" for n in range(1, sum(g[1] for g in GROUPS) + 1)]
+        rnd.shuffle(ids)
+        self.ids: dict[str, list[str]] = {}
+        for name, size, _ in GROUPS:
+            self.ids[name], ids = ids[:size], ids[size:]
+        self.new_from = end - timedelta(days=NEW_DAYS - 1)
+        total = (end - START).days + 1
+        window = {
+            "vip": total,
+            "regular": total,
+            "lapsed": (LAPSED_UNTIL - START).days + 1,
+            "new": NEW_DAYS,
+        }
+        # orders per day each group places, relative to the others
+        self.rate = {name: size * per / window[name] for name, size, per in GROUPS}
+
+    def pick(self, day: date) -> tuple[str, str]:
+        names = ["vip", "regular"]
+        if day <= LAPSED_UNTIL:
+            names.append("lapsed")
+        if day >= self.new_from:
+            names.append("new")
+        group = self.rnd.choices(names, [self.rate[n] for n in names])[0]
+        return group, self.rnd.choice(self.ids[group])
+
+    def members(self, rows: list[Row]) -> dict[str, list[str]]:
+        buyers = {r["customer_id"] for r in rows if r["revenue_cents"] > 0}
+        return {name: sorted(c for c in ids if c in buyers) for name, ids in self.ids.items()}
+
+
+def _plant_anomalies(
+    rows: list[Row], products: list[dict[str, Any]], rnd: random.Random, order_no: int
+) -> tuple[list[Row], dict[str, Any]]:
+    """Plant spikes, drops, a level shift and row-level oddities; rows stay in date order."""
+    by_day: dict[date, list[Row]] = defaultdict(list)
+    for r in rows:
+        by_day[r["order_date"]].append(r)
+    customers = sorted({r["customer_id"] for r in rows})
+    cause = next(p for p in products if p["name"] == CAUSE_PRODUCT)
+
+    def copy_order(template: Row, day: date) -> Row:
+        nonlocal order_no
+        order_no += 1
+        return {**template, "order_id": f"O{order_no}", "order_date": day}
+
+    for day in sorted(by_day):
+        if day >= LEVEL_SHIFT:
+            today = list(by_day[day])
+            extra = max(0, round(len(today) * (LEVEL_SHIFT_FACTOR - 1.0) + rnd.random() - 0.5))
+            by_day[day].extend(copy_order(rnd.choice(today), day) for _ in range(extra))
+    for day in SPIKES:
+        today = by_day[day]
+        # SPIKE_FACTOR times a normal day (the median of the 4 weeks around it), not of this day
+        around = sorted(
+            sum(r["revenue_cents"] for r in by_day[day + timedelta(days=k)])
+            for k in range(-14, 15)
+            if k
+        )
+        target = around[len(around) // 2] * SPIKE_FACTOR - sum(r["revenue_cents"] for r in today)
+        added = 0
+        while added < target:
+            template = rnd.choice(rows)
+            if day == CAUSE_SPIKE:
+                template = {
+                    **template,
+                    "customer_id": rnd.choice(customers),
+                    "product": cause["name"],
+                    "category": cause["category"],
+                    "quantity": 5,
+                    "price_cents": cause["price_cents"],
+                }
+            row = copy_order(template, day)
+            row["revenue_cents"] = row["quantity"] * row["price_cents"]
+            today.append(row)
+            added += row["revenue_cents"]
+    for day in DROPS:
+        by_day[day] = [min(by_day[day], key=lambda r: (r["revenue_cents"], r["order_id"]))]
+    out = [r for day in sorted(by_day) for r in by_day[day]]
+    for r in out:
+        r["discount_pct"] = rnd.choice(NORMAL_DISCOUNTS)
+        r["list_price_cents"] = r["price_cents"]
+    special = set(SPIKES) | set(DROPS)
+    quiet = [r for r in out if r["order_date"] not in special]
+    discounted = rnd.sample(quiet, UNUSUAL_DISCOUNTS)
+    rest = [r for r in quiet if r not in discounted]
+    zero = rnd.sample(rest, ZERO_QUANTITY_ROWS)
+    cheap = [r for r in rest if r not in zero and r["price_cents"] <= 1250]
+    pricey = rnd.sample(cheap, EXTREME_PRICE_ROWS)
+    for r in discounted:
+        r["discount_pct"] = rnd.choice([70, 80, 90])
+    for r in zero:
+        r["quantity"], r["discount_pct"] = 0, 0
+    for r in pricey:
+        r["price_cents"] *= EXTREME_PRICE_FACTOR
+        r["discount_pct"] = 0
+    for r in out:
+        r["revenue_cents"] = r["quantity"] * r["price_cents"] * (100 - r["discount_pct"]) // 100
+        r["cost_cents"] = r["quantity"] * r.pop("list_price_cents") * 6 // 10
+    planted = {
+        "points": [
+            {
+                "date": d.isoformat(),
+                "kind": "spike" if d in SPIKES else "drop",
+                "cause_product": CAUSE_PRODUCT if d == CAUSE_SPIKE else None,
+            }
+            for d in sorted(special)
+        ],
+        "level_shift": {"date": LEVEL_SHIFT.isoformat(), "factor": LEVEL_SHIFT_FACTOR},
+        "unusual_discount_orders": sorted(r["order_id"] for r in discounted),
+        "zero_quantity_orders": sorted(r["order_id"] for r in zero),
+        "extreme_price_orders": sorted(r["order_id"] for r in pricey),
+    }
+    return out, planted
 
 
 def _refund_rows(rows: list[Row], rnd: random.Random, end: date = END) -> list[Row]:
@@ -333,21 +507,32 @@ def generate(
     lang: str = "en",
     refunds: bool = False,
     years: int = DEFAULT_YEARS,
+    anomalies: bool = False,
+    segments: bool = False,
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Write the CSV and its facts JSON into `directory`; return (csv, json, facts)."""
     if years < DEFAULT_YEARS:
         raise ValueError("years must be at least 2")
     directory.mkdir(parents=True, exist_ok=True)
-    rows = _build_rows(seed, refunds, years)
+    rows, planted = _build_rows(seed, refunds, years, anomalies, segments)
     facts = compute_facts(rows, seed, lang, refunds, years)
     if facts["customer_count"] < 500 or facts["dead_stock"] != sorted(DEAD_PRODUCTS):
         raise AssertionError("generator no longer satisfies its planted facts")
+    if "anomalies" in planted:
+        position = {r["order_id"]: n for n, r in enumerate(rows, start=1)}
+        for kind in ("unusual_discount", "zero_quantity", "extreme_price"):
+            orders = planted["anomalies"][f"{kind}_orders"]
+            planted["anomalies"][f"{kind}_rows"] = sorted(position[o] for o in orders)
+    if planted:
+        facts["planted"] = {**facts.get("planted", {}), **planted}
     suffix = "" if years == DEFAULT_YEARS else f"_{years}y"
+    suffix += "_anomalies" if anomalies else ""
+    suffix += "_segments" if segments else ""
     stem = f"ground_truth_{lang}{'_refunds' if refunds else ''}{suffix}"
     csv_path, json_path = directory / f"{stem}.csv", directory / f"{stem}.json"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(HEADERS[lang])
+        writer.writerow(HEADERS[lang] + ([DISCOUNT_HEADER[lang]] if anomalies else []))
         for r in rows:
             writer.writerow(
                 [
@@ -363,6 +548,7 @@ def generate(
                     _money(r["revenue_cents"]),
                     _money(r["cost_cents"]),
                 ]
+                + ([r.get("discount_pct", 0)] if anomalies else [])
             )
     _write_json(json_path, facts, ensure_ascii=False)
     return csv_path, json_path, facts
@@ -423,5 +609,7 @@ if __name__ == "__main__":
             lang=_option("--lang", "en"),
             refunds="--refunds" in sys.argv,
             years=int(_option("--years", str(DEFAULT_YEARS))),
+            anomalies="--anomalies" in sys.argv,
+            segments="--segments" in sys.argv,
         )
     print(f"wrote {written[0]}\nwrote {written[1]}")

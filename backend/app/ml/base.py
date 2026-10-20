@@ -50,6 +50,48 @@ class Insight:
         }
 
 
+@dataclass(frozen=True)
+class DataFacts:
+    """What the stored profile already knows about a version (nothing is recomputed).
+
+    Modules use it to say up front, in plain words, that the data is too small for them.
+    """
+
+    row_count: int = 0
+    distinct: dict[str, int] = field(default_factory=dict)  # role -> distinct values
+    date_span_days: int | None = None
+    granularity: str | None = None
+    pii_roles: frozenset[str] = frozenset()  # roles whose column is flagged as personal data
+
+    @classmethod
+    def from_profiles(
+        cls, roles: RoleMap, profiles: list[Any], dataset_profile: dict[str, Any] | None
+    ) -> "DataFacts":
+        """Build the facts for a role map from the version's column profiles."""
+        by_name = {p.name: p for p in profiles}
+        distinct: dict[str, int] = {}
+        pii: set[str] = set()
+        for role, name in roles.columns.items():
+            profile = by_name.get(name)
+            if profile is None:
+                continue
+            count = profile.stats.get("distinct_count")
+            if count is not None:
+                distinct[role] = int(count)
+            if getattr(profile, "pii_flag", False):
+                pii.add(role)
+        date_profile = by_name.get(roles.columns.get("date", ""))
+        stats = date_profile.stats if date_profile is not None else {}
+        span = stats.get("span_days")
+        return cls(
+            row_count=int((dataset_profile or {}).get("row_count") or 0),
+            distinct=distinct,
+            date_span_days=None if span is None else int(span),
+            granularity=stats.get("granularity"),
+            pii_roles=frozenset(pii),
+        )
+
+
 @dataclass
 class AnalysisContext:
     """Everything a module may use; it never touches the database or the file itself."""
@@ -62,6 +104,8 @@ class AnalysisContext:
     quality: QualityContext
     config: dict[str, Any]
     granularity: str | None = None
+    facts: DataFacts = field(default_factory=DataFacts)
+    version_number: int | None = None
     warnings: list[str] = field(default_factory=list)
     cache: dict[str, Any] = field(default_factory=dict)
 
@@ -97,3 +141,7 @@ class AnalysisModule(ABC):
     def notes(self, roles: RoleMap) -> list[str]:
         """Return plain-language notes about parts of this module that will be skipped."""
         return []
+
+    def data_requirement(self, facts: DataFacts) -> str | None:
+        """Return why the data is too small for this module (plain words), or None if it fits."""
+        return None

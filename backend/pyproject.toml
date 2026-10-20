@@ -28,6 +28,7 @@ dependencies = [
     "lightgbm>=4.7.0",
     "mlflow-skinny==2.22.0",
     "psutil>=7.2.2",
+    "scikit-learn>=1.9.1",
 ]
 
 [dependency-groups]
@@ -73,16 +74,16 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*", "sklearn.*", "joblib.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["app.workers.tasks"]
+module = ["app.workers.tasks", "app.workers.celery_app"]
 disable_error_code = ["untyped-decorator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: generates a large file at runtime (still part of make test)"]
+markers = ["slow: takes 10s or more locally (large files or several full analysis runs); still part of make test and CI"]
 filterwarnings = [
     "ignore::SyntaxWarning",
     "ignore::DeprecationWarning:mlflow.*",

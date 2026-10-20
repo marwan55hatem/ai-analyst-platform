@@ -5,8 +5,8 @@ from datetime import date, timedelta
 import numpy as np
 import pytest
 
+from app.ml.budget import Budget, reason_text
 from app.ml.forecasting import engine as engine_module
-from app.ml.forecasting.budget import Budget, reason_text
 from app.ml.forecasting.confidence import derive_confidence, lower
 from app.ml.forecasting.engine import (
     ForecastResult,

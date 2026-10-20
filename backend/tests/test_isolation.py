@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,8 @@ ANALYSIS_ROUTES = {
     ("GET", "/api/v1/datasets/{dataset_id}/analysis-runs"),
     ("GET", "/api/v1/analysis-runs/{run_id}"),
     ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/anomalies"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/segments"),
     ("GET", "/api/v1/insights/{insight_id}"),
 }
 FORECAST_ROUTES = {
@@ -113,6 +116,7 @@ def test_tenant_b_gets_404_for_every_tenant_a_dataset_route(client: TestClient) 
     assert len(client.get(f"{API}/datasets", headers=owner_a.headers).json()) == 1
 
 
+@pytest.mark.slow
 def test_tenant_b_gets_404_for_every_tenant_a_analysis_route(
     client: TestClient, tmp_path: Path
 ) -> None:

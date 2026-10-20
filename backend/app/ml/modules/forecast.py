@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 
 from app.ml.base import AnalysisContext, AnalysisModule, Confidence, Insight
-from app.ml.forecasting.budget import Budget, reason_text
+from app.ml.budget import Budget, reason_text
 from app.ml.forecasting.engine import ForecastResult, forecast_series
 from app.ml.forecasting.series import (
     FREQS,

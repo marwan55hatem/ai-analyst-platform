@@ -16,11 +16,13 @@ from app.db.repository import (
     ColumnProfileRepository,
     DatasetVersionRepository,
     InsightRepository,
+    SegmentAssignmentRepository,
 )
 from app.db.session import get_sessionmaker
 from app.ml import capabilities, registry
-from app.ml.base import AnalysisContext, Insight
+from app.ml.base import AnalysisContext, DataFacts, Insight
 from app.ml.engine import open_analysis
+from app.ml.modules.segments import CACHE_KEY as SEGMENT_CACHE_KEY
 from app.ml.quality import QualityContext
 from app.ml.roles import RoleMap
 from app.models.analysis import AnalysisRun, AnalysisStatus
@@ -34,6 +36,7 @@ ANALYSIS_FAILED_MESSAGE = "The analysis failed. Please try running it again."
 ANALYSIS_START_FAILED = "The analysis could not be started. Please try again later."
 ANALYSIS_STUCK_ERROR = "The analysis timed out. Please run it again."
 MODULE_ERROR_LIMIT = 300
+SEGMENT_MODULE = "segmentation"
 
 
 # ---- request side --------------------------------------------------------------------------
@@ -53,7 +56,9 @@ def capabilities_payload(
     """Return which modules can run on a version and why the others cannot."""
     require_profile(version)
     roles = _roles_for(db, tenant_id, version, date_column)
-    caps = capabilities.detect(registry.all_modules(), roles)
+    profiles = ColumnProfileRepository(db, tenant_id).for_version(version.id)
+    facts = DataFacts.from_profiles(roles, profiles, version.dataset_profile)
+    caps = capabilities.detect(registry.all_modules(), roles, facts)
     return {
         "version_id": version.id,
         "version": version.version,
@@ -181,6 +186,8 @@ def analysis_context(
             ),
             config=dict(config),
             granularity=granularity,
+            facts=DataFacts.from_profiles(roles, profiles, version.dataset_profile),
+            version_number=version.version,
         )
 
 
@@ -197,6 +204,8 @@ def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
             progress["done"] += 1
             run.progress = dict(progress)
             db.commit()
+        _store_assignments(db, tenant_id, run, version.id, context, progress, collected)
+    run.progress = dict(progress)
     states = [m["status"] for m in progress["modules"].values()]
     InsightRepository(db, tenant_id).delete_for_version(version.id)
     repo = InsightRepository(db, tenant_id)
@@ -227,9 +236,43 @@ def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
     logger.info("analysis_done", run_id=str(run.id), status=run.status, insights=len(collected))
 
 
+def _store_assignments(
+    db: Session,
+    tenant_id: uuid.UUID,
+    run: AnalysisRun,
+    version_id: uuid.UUID,
+    context: AnalysisContext,
+    progress: dict[str, Any],
+    collected: list[Insight],
+) -> None:
+    """Replace the version's per-customer segments while the DuckDB connection is still open."""
+    repo = SegmentAssignmentRepository(db, tenant_id)
+    repo.delete_for_version(version_id)
+    make = context.cache.get(SEGMENT_CACHE_KEY)
+    state = progress["modules"].get(SEGMENT_MODULE, {})
+    if make is None or state.get("status") != "completed":
+        return
+    savepoint = db.begin_nested()
+    try:
+        for batch in make():
+            repo.add_many(run.id, version_id, batch)
+        savepoint.commit()
+    except Exception as exc:
+        logger.exception("segment_assignments_failed", run_id=str(run.id))
+        savepoint.rollback()
+        message = f"{type(exc).__name__}: {exc}"[:MODULE_ERROR_LIMIT]
+        collected[:] = [i for i in collected if i.module != SEGMENT_MODULE]
+        progress["modules"][SEGMENT_MODULE] = {
+            "status": "failed",
+            "error": message,
+            "insights": 0,
+            "warnings": [f"Saving the customer segments failed: {message}"],
+        }
+
+
 def _run_module(module: Any, context: AnalysisContext, collected: list[Insight]) -> dict[str, Any]:
     """Run one module; a failure becomes a warning on the run and the others carry on."""
-    capability = capabilities.check(module, context.roles)
+    capability = capabilities.check(module, context.roles, context.facts)
     if not capability.available:
         return {"status": "skipped", "reason": capability.reason, "insights": 0, "warnings": []}
     context.warnings.clear()

@@ -18,6 +18,7 @@ def _one(
     return full(client, account, found[0])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("lang", ["en", "ar"])
 def test_planted_facts_are_recovered_exactly(client: TestClient, tmp_path: Path, lang: str) -> None:
     owner = register(client)
@@ -32,6 +33,8 @@ def test_planted_facts_are_recovered_exactly(client: TestClient, tmp_path: Path,
         "pareto": "completed",
         "cohort_retention": "completed",
         "forecast": "completed",
+        "anomalies": "completed",
+        "segmentation": "completed",
     }
 
     kpi = _one(client, owner, insights, "kpi_summary")["payload"]

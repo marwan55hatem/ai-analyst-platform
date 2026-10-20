@@ -20,8 +20,8 @@ from app.models.analysis import Insight as InsightRow
 from app.models.dataset import DatasetVersion
 from app.services.analysis import ANALYSIS_STUCK_ERROR
 from app.services.datasets import fail_stuck_ingestions
-from app.services.query import SafeQueryService, validate_sql
 from tests.dataset_helpers import upload, upload_ready
+from tests.evidence_helpers import replay_evidence
 from tests.ground_truth_fixtures import analyze, full, make, of_type
 from tests.helpers import API, add_member, register
 
@@ -49,36 +49,23 @@ def add_column(content: bytes, name: str, make_value: Any) -> bytes:
     return out.getvalue().encode("utf-8")
 
 
-def _numbers_match(a: Any, b: Any) -> bool:
-    if isinstance(a, int | float) and isinstance(b, int | float):
-        return float(a) == pytest.approx(float(b), abs=0.011)
-    return bool(a == b)
-
-
 def test_every_evidence_query_is_valid_and_reproducible(
     client: TestClient, db: Session, tmp_path: Path
 ) -> None:
     owner = register(client)
     content, _ = make(tmp_path, refunds=True)
     dataset_id, run, insights = analyze(client, owner, content)
-    version_id = uuid.UUID(run["dataset_version_id"])
     modules = {i["module"] for i in insights}
-    assert modules == {"kpis", "trend_seasonality", "pareto", "cohort_retention", "forecast"}
-    service = SafeQueryService(db)
-    checked = 0
-    for summary in insights:
-        for query in full(client, owner, summary)["evidence"]["queries"]:
-            validate_sql(query["sql"])  # the agent in Step 8 can run it
-            result = service.run(uuid.UUID(owner.tenant_id), version_id, query["sql"], 5000)
-            assert result.columns == query["columns"], query["purpose"]
-            assert len(result.rows) == query["row_count"], query["purpose"]
-            for shown, again in zip(query["rows"], result.rows, strict=False):
-                assert all(_numbers_match(x, y) for x, y in zip(shown, again, strict=True)), (
-                    query["purpose"],
-                    shown,
-                    again,
-                )
-            checked += 1
+    assert modules == {
+        "kpis",
+        "trend_seasonality",
+        "pareto",
+        "cohort_retention",
+        "forecast",
+        "anomalies",
+        "segmentation",
+    }
+    checked = replay_evidence(client, db, owner, run, insights)
     assert checked >= 10
 
 
@@ -95,6 +82,8 @@ def test_capabilities_for_a_full_dataset_and_one_without_customer_id(
         "pareto": True,
         "cohort_retention": True,
         "forecast": True,
+        "anomalies": True,
+        "segmentation": True,
     }
 
     slim = upload_ready(client, owner, drop_columns(content, {"customer_id"}), "slim.csv")
@@ -207,6 +196,7 @@ def test_a_failing_module_is_a_warning_and_the_others_continue(
     assert round(kpi["payload"]["net_revenue"] * 100) == facts["net_revenue_cents"]
 
 
+@pytest.mark.slow
 def test_rerun_replaces_previous_insights(client: TestClient, db: Session, tmp_path: Path) -> None:
     owner = register(client)
     content, _ = make(tmp_path)
@@ -264,6 +254,7 @@ def test_analysis_chains_after_profiling_when_enabled(
     assert round(kpi["payload"]["net_revenue"] * 100) == facts["net_revenue_cents"]
 
 
+@pytest.mark.slow
 def test_analysis_can_target_a_version(client: TestClient, db: Session, tmp_path: Path) -> None:
     owner = register(client)
     content, _ = make(tmp_path)
@@ -411,6 +402,7 @@ def test_auto_enqueue_never_raises_and_skips_active_runs(
     assert db.scalar(select(func.count()).select_from(AnalysisRun)) == 0
 
 
+@pytest.mark.slow
 def test_list_analysis_runs_newest_first_with_filters(
     client: TestClient, db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
