@@ -79,8 +79,8 @@ insights, model_runs, segment_assignments, conversations, messages, reports.
 - GNU Make 3.81 (GnuWin32). Keep the Makefile simple: one-line recipes that work
   with cmd.exe, no bash-only syntax. Targets must call `docker compose` and `uv`.
 - `.gitattributes` has `* text=auto eol=lf` so shell scripts keep LF endings in Docker.
-- Git has a remote `origin` and a `main` branch. Branch per step; never push, the
-  user pushes.
+- Git has a remote `origin` and a `main` branch. Branch per step; push only the step
+  branch; never push to main.
 
 ## Workflow rules (every step)
 1. Do all the work yourself, including what you would normally ask the user to run in PowerShell: start the stack (`make up`, `make migrate`), run the manual walkthrough against it (upload the sample files, call the endpoints, read the results) and show the real outputs, trimmed to what matters, with a pass or fail per check. Do not hand over lists of commands.
