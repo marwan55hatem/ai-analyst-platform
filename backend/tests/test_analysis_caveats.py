@@ -40,6 +40,7 @@ def _details(
 # ---- duplicates ------------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_duplicate_rows_warn_every_insight_and_cap_confidence(
     client: TestClient, tmp_path: Path
 ) -> None:
@@ -119,6 +120,7 @@ def test_null_heavy_key_columns_are_excluded_counted_and_warned(
     assert season["payload"]["excluded_rows"] >= max(blank_revenue, blank_date)
 
 
+@pytest.mark.slow
 def test_low_quality_score_caps_confidence(client: TestClient, db: Session, tmp_path: Path) -> None:
     owner = register(client)
     content, _ = make(tmp_path)

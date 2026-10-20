@@ -86,6 +86,16 @@ def base_revenue(ctx: AnalysisContext) -> float:
     return float(ctx.cache["base_revenue"])
 
 
+def refund_rows(ctx: AnalysisContext) -> int:
+    """Count rows with negative revenue (returns/refunds), cached per run."""
+    if "refund_rows" not in ctx.cache:
+        rev = revenue_expr(ctx)
+        ctx.cache["refund_rows"] = int(
+            ctx.db.scalar(f"SELECT count(*) FROM data WHERE {rev} < 0") or 0
+        )
+    return int(ctx.cache["refund_rows"])
+
+
 def excluded_rows(ctx: AnalysisContext, columns: list[str]) -> int:
     """Count rows a module drops because one of its key columns is empty."""
     if not columns:

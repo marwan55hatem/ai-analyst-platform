@@ -31,6 +31,7 @@ USED_ROLES = (
     "category",
     "region",
     "channel",
+    "discount",
 )
 DIMENSION_ROLES = ("product", "category", "region", "channel")
 

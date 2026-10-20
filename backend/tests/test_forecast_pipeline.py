@@ -14,7 +14,7 @@ from mlflow.tracking import MlflowClient
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.ml.forecasting.budget import Budget
+from app.ml.budget import Budget
 from app.ml.forecasting.engine import forecast_series
 from app.services.query import SafeQueryService, validate_sql
 from tests.dataset_helpers import upload_ready

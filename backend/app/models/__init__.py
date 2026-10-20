@@ -1,6 +1,6 @@
 """SQLAlchemy ORM models (all tenant data carries tenant_id)."""
 
-from app.models.analysis import AnalysisRun, AnalysisStatus, Insight
+from app.models.analysis import AnalysisRun, AnalysisStatus, Insight, SegmentAssignment
 from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionStatus
 from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
@@ -19,6 +19,7 @@ __all__ = [
     "ModelRun",
     "ProfileStatus",
     "RefreshToken",
+    "SegmentAssignment",
     "Role",
     "Tenant",
     "User",

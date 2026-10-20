@@ -4,12 +4,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, delete, func, select
+from sqlalchemy import Select, delete, func, insert, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
-from app.models.analysis import AnalysisRun, AnalysisStatus, Insight
+from app.models.analysis import AnalysisRun, AnalysisStatus, Insight, SegmentAssignment
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
@@ -245,6 +245,55 @@ class InsightRepository(TenantRepository[Insight]):
         self.session.execute(
             delete(Insight).where(
                 Insight.tenant_id == self.tenant_id, Insight.dataset_version_id == version_id
+            )
+        )
+
+
+class SegmentAssignmentRepository(TenantRepository[SegmentAssignment]):
+    """Per-customer segment assignments of one tenant."""
+
+    model = SegmentAssignment
+
+    def add_many(
+        self, run_id: uuid.UUID, version_id: uuid.UUID, rows: list[dict[str, Any]]
+    ) -> None:
+        """Insert a batch of assignments for a run (tenant_id is always set here)."""
+        if not rows:
+            return
+        if any("tenant_id" in r for r in rows):
+            raise ValueError("tenant_id is set by the repository")
+        fixed = {"tenant_id": self.tenant_id, "run_id": run_id, "dataset_version_id": version_id}
+        self.session.execute(insert(SegmentAssignment), [{**r, **fixed} for r in rows])
+
+    def page(
+        self,
+        run_id: uuid.UUID,
+        *,
+        segment: str | None = None,
+        cluster: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SegmentAssignment], int]:
+        """Return one page of a run's assignments (ordered by customer key) and the total."""
+        stmt = self._select().where(SegmentAssignment.run_id == run_id)
+        if segment is not None:
+            stmt = stmt.where(SegmentAssignment.rfm_segment == segment)
+        if cluster is not None:
+            stmt = stmt.where(SegmentAssignment.cluster == cluster)
+        total = self.session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        rows = self.session.scalars(
+            stmt.order_by(SegmentAssignment.customer_key, SegmentAssignment.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(rows), int(total)
+
+    def delete_for_version(self, version_id: uuid.UUID) -> None:
+        """Remove every assignment of a version (a re-run replaces them)."""
+        self.session.execute(
+            delete(SegmentAssignment).where(
+                SegmentAssignment.tenant_id == self.tenant_id,
+                SegmentAssignment.dataset_version_id == version_id,
             )
         )
 

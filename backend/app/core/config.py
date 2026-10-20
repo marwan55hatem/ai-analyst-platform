@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+import structlog
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,6 +39,13 @@ class Settings(BaseSettings):
     forecast_max_groups: int = 10
     forecast_memory_mb: int = 400
     forecast_seed: int = 42
+    ml_seed: int = 42
+    anomaly_row_sample: int = 50_000
+    anomaly_max_seconds: float = 60.0
+    segment_max_customers: int = 100_000
+    segment_bootstrap_rounds: int = 20
+    segment_max_seconds: float = 60.0
+    pseudonym_secret: str = ""
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"
     email_api_key: str = ""
@@ -53,9 +61,27 @@ class Settings(BaseSettings):
             )
 
     @property
+    def pseudonym_key(self) -> bytes:
+        """Return the HMAC key for customer pseudonyms (derived from JWT_SECRET when unset)."""
+        if self.pseudonym_secret:
+            return self.pseudonym_secret.encode()
+        return f"pseudonym:{self.jwt_secret}".encode()
+
+    @property
     def cors_origin_list(self) -> list[str]:
         """Return CORS_ORIGINS as a list of non-empty origins."""
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+
+def warn_derived_pseudonym_secret(settings: Settings) -> bool:
+    """Log one warning when customer pseudonyms are keyed from JWT_SECRET; return whether it did."""
+    if settings.pseudonym_secret:
+        return False
+    structlog.get_logger().warning(
+        "pseudonym_secret_derived_from_jwt",
+        hint="set PSEUDONYM_SECRET in production: changing JWT_SECRET changes every pseudonym",
+    )
+    return True
 
 
 @lru_cache

@@ -1,10 +1,12 @@
 """Registry of analysis modules (explicit list: adding a module is one import and one line)."""
 
 from app.ml.base import AnalysisModule
+from app.ml.modules.anomalies import AnomalyModule
 from app.ml.modules.cohort import CohortRetentionModule
 from app.ml.modules.forecast import ForecastModule
 from app.ml.modules.kpis import KpiModule
 from app.ml.modules.pareto import ParetoModule
+from app.ml.modules.segments import SegmentationModule
 from app.ml.modules.trend import TrendSeasonalityModule
 
 _MODULES: list[type[AnalysisModule]] = [
@@ -13,6 +15,8 @@ _MODULES: list[type[AnalysisModule]] = [
     ParetoModule,
     CohortRetentionModule,
     ForecastModule,
+    AnomalyModule,
+    SegmentationModule,
 ]
 
 

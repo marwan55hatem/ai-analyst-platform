@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from mlflow.tracking import MlflowClient
 
-from app.ml.forecasting.budget import Budget
+from app.ml.budget import Budget
 from app.ml.forecasting.engine import forecast_series
 from app.ml.forecasting.tracking import (
     experiment_name,

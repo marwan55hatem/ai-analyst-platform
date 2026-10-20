@@ -15,9 +15,18 @@ GUARDED_PACKAGES = (
     "app/services/profiling",
     "app/ml",
     "app/ml/forecasting",
+    "app/ml/anomaly",
+    "app/ml/segmentation",
 )
 # Security-critical files held to a stricter bar than the package minimum.
-GUARDED_FILES = {"app/services/query.py": 90.0, "app/services/analysis.py": 85.0}
+GUARDED_FILES = {
+    "app/services/query.py": 90.0,
+    "app/services/analysis.py": 85.0,
+    # Step 6 modules: each held to the package bar on its own
+    "app/ml/modules/anomalies.py": 85.0,
+    "app/ml/modules/segments.py": 85.0,
+    "app/services/findings.py": 85.0,
+}
 
 
 def package_coverage(

@@ -12,12 +12,14 @@ from app.schemas.analysis import (
     AnalysisRunListItem,
     AnalysisRunOut,
     AnalyzeRequest,
+    AnomaliesOut,
     CapabilitiesOut,
     Confidence,
     InsightOut,
     InsightSummary,
+    SegmentsOut,
 )
-from app.services import analysis
+from app.services import analysis, findings
 from app.services.profiling import service as profiling
 
 router = APIRouter(
@@ -148,3 +150,39 @@ def list_insights(
 def get_insight(insight_id: uuid.UUID, user: CurrentUser, db: DbSession) -> InsightOut:
     """Return one insight of the caller's tenant."""
     return InsightOut.model_validate(InsightRepository(db, user.tenant_id).get_or_404(insight_id))
+
+
+@router.get(
+    "/analysis-runs/{run_id}/anomalies",
+    response_model=AnomaliesOut,
+    summary="Unusual periods, level shifts and odd rows found by a run",
+)
+def get_anomalies(run_id: uuid.UUID, user: CurrentUser, db: DbSession) -> AnomaliesOut:
+    """Return the anomalies of one run of the caller's tenant, with likely contributors."""
+    return AnomaliesOut.model_validate(findings.anomalies_payload(db, user.tenant_id, run_id))
+
+
+SegmentName = Literal[
+    "Champions", "Loyal", "Potential loyalists", "New", "At risk", "Hibernating", "Lost"
+]
+
+
+@router.get(
+    "/analysis-runs/{run_id}/segments",
+    response_model=SegmentsOut,
+    summary="Customer segments of a run and a page of per-customer assignments",
+)
+def get_segments(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    segment: SegmentName | None = None,
+    cluster: Annotated[int | None, Query(ge=0, le=20)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SegmentsOut:
+    """Return RFM segments, clusters and assignments of one run of the caller's tenant."""
+    found = findings.segments_payload(
+        db, user.tenant_id, run_id, segment=segment, cluster=cluster, limit=limit, offset=offset
+    )
+    return SegmentsOut.model_validate(found)

@@ -51,7 +51,7 @@ method, warnings.
 
 ## Core tables
 tenants, users, datasets, dataset_versions, column_profiles, analysis_runs,
-insights, model_runs, conversations, messages, reports.
+insights, model_runs, segment_assignments, conversations, messages, reports.
 
 ## Progress log (append one line after each finished step)
 - [x] Step 0 bootstrap — monorepo skeleton: FastAPI health, Celery ping, compose stack, Makefile, CI, pre-commit
@@ -60,7 +60,7 @@ insights, model_runs, conversations, messages, reports.
 - [x] Step 3 profiling and cleaning — separate profile stage (DuckDB, memory-limited) with column stats, EN/AR role rules + LLMClient/FakeLLMClient refinement, PII masking, 0-100 quality score, non-destructive cleaning plan that creates a new version, identifier columns kept as text, 549+ tests with a profiling coverage gate
 - [x] Step 4 analytics pipeline — AnalysisModule framework + registry + capability detection, KPI / trend+STL seasonality / Pareto+dead stock / cohort retention modules on a hardened per-run DuckDB table, impact score, data-quality caveats, net-vs-refund rules, auto-run after profiling, /analyze, runs and insights endpoints, ground-truth dataset recovered exactly, 600+ tests with app/ml coverage gate
 - [x] Step 5 forecasting — ForecastModule (total + top 5 categories) with rolling-origin backtests of seasonal naive/ETS/ARIMA/Theta/LightGBM, MASE winner that must beat the baseline, 80/95% ranges, honest low-confidence wording, partial-period drop, time/series/memory budgets, per-tenant MLflow runs, async POST /datasets/{id}/forecast via Celery (model_runs), --years 3 generator, forecasting coverage gate
-- [ ] Step 6 anomalies and segmentation
+- [x] Step 6 anomalies and segmentation — AnomalyModule (STL robust z + Isolation Forest consensus, spike/drop events, CUSUM level shifts on YoY weekly orders/revenue, SQL drill-down of likely contributors, row-level checks on a bounded sample) and SegmentationModule (SQL RFM with explicit segment map and suggestions, K-Means k 3-8 by silhouette, bootstrap ARI stability, deterministic names), segment_assignments table with pseudonyms for PII ids, /anomalies and /segments endpoints, data-requirement skip reasons, planted anomalies/groups in the generator, 742 tests with coverage gates for both modules
 - [ ] Step 7 churn, drivers, what-if
 - [ ] Step 8 agent and chat backend
 - [ ] Step 9 evaluation suite
@@ -79,8 +79,8 @@ insights, model_runs, conversations, messages, reports.
 - GNU Make 3.81 (GnuWin32). Keep the Makefile simple: one-line recipes that work
   with cmd.exe, no bash-only syntax. Targets must call `docker compose` and `uv`.
 - `.gitattributes` has `* text=auto eol=lf` so shell scripts keep LF endings in Docker.
-- Git has a remote `origin` and a `main` branch. Branch per step; never push, the
-  user pushes.
+- Git has a remote `origin` and a `main` branch. Branch per step; push only the step
+  branch; never push to main.
 
 ## Workflow rules (every step)
 1. Do all the work yourself, including what you would normally ask the user to run in PowerShell: start the stack (`make up`, `make migrate`), run the manual walkthrough against it (upload the sample files, call the endpoints, read the results) and show the real outputs, trimmed to what matters, with a pass or fail per check. Do not hand over lists of commands.
@@ -89,6 +89,6 @@ insights, model_runs, conversations, messages, reports.
 4. When `make lint` and `make test` are green and the work is committed: `git push -u origin <branch>`; `gh pr create` (title = the commit title; body = what was built, test and coverage numbers, how it was verified, known limits, decisions for the user); then watch the checks to the end with `gh pr checks --watch`.
 5. If CI fails: read the failing log (`gh run view --log-failed`), find the cause, fix it with a NEW commit (never amend), push, and watch again. Maximum 3 attempts, then stop and report. When the cause is a difference between the user's Windows machine and the Linux CI runner, say so.
 6. Do NOT merge by yourself. Stop once CI is green and report: PR link, CI result and run time, test and coverage numbers, the manual check table, decisions for the user.
-7. When the user says "merge": run `gh pr merge --merge --delete-branch`, then `git switch main`, `git pull origin main`, `git branch -D <the merged step branch only>`, `git fetch --prune`, `git status`, `git log --oneline -3`, then watch the CI run on main to the end and report.
+7. When the user says "merge": run `gh pr merge --merge --delete-branch`, then `git switch main`, `git pull origin main`, `git branch -D <the merged step branch only>` (skip it when gh already deleted the local branch), `git fetch --prune`, `git status`, `git log --oneline -3`, then watch the CI run on main to the end and report.
 8. Never force-push, rewrite history, push directly to main, change repository or branch settings, or delete anything other than the merged step branch.
 9. Stop and ask when something needs a judgement call: security, deleting data, costs, or a change to the plan.

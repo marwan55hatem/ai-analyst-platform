@@ -95,3 +95,67 @@ class InsightOut(InsightSummary):
     dataset_version_id: uuid.UUID
     payload: dict[str, Any]
     evidence: dict[str, Any]
+
+
+class AnomaliesOut(BaseModel):
+    """A run's anomalies: unusual periods with likely contributors, level shifts and odd rows."""
+
+    run_id: uuid.UUID
+    status: str
+    module_status: str | None = Field(
+        description="completed, skipped or failed for the anomalies module (null until it ran)"
+    )
+    skipped_reason: str | None
+    warnings: list[str]
+    unit: str | None = Field(description="day, week or month")
+    events: list[dict[str, Any]] = Field(
+        description="Every anomaly, largest first; findings from data, not proven causes"
+    )
+    level_shifts: list[dict[str, Any]]
+    row_anomalies: dict[str, Any] | None
+    insights: list[InsightOut]
+
+
+class SegmentAssignmentOut(BaseModel):
+    """One customer's RFM segment and cluster (a pseudonym when the id is personal data)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    customer_key: str
+    rfm_segment: str
+    r_score: int
+    f_score: int
+    m_score: int
+    recency_days: int
+    frequency: int
+    monetary: float
+    cluster: int | None
+    cluster_name: str | None
+
+
+class AssignmentPage(BaseModel):
+    """One page of customer assignments."""
+
+    items: list[SegmentAssignmentOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class SegmentsOut(BaseModel):
+    """A run's customer segments: RFM table, cluster profiles, stability and assignments."""
+
+    run_id: uuid.UUID
+    status: str
+    module_status: str | None
+    skipped_reason: str | None
+    warnings: list[str]
+    pseudonymized_customer_ids: bool
+    segments: list[dict[str, Any]] = Field(
+        description="RFM segments; each recommended_action is a rule-based suggestion"
+    )
+    clusters: list[dict[str, Any]]
+    k: int | None
+    stability: dict[str, Any] | None
+    assignments: AssignmentPage
+    insights: list[InsightOut]

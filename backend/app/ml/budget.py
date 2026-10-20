@@ -1,4 +1,4 @@
-"""Time and memory budget for a forecast run; running out degrades the work, never fails it."""
+"""Time and memory budget for heavy ML work; running out degrades the work, never fails it."""
 
 import gc
 import os
@@ -14,7 +14,7 @@ def process_rss_mb() -> float:
 
 
 class Budget:
-    """Wall-clock and memory limits shared by every series of one forecast run.
+    """Wall-clock and memory limits shared by the steps of one ML run (forecast, segments).
 
     `exhausted()` names the limit that was hit ("time" or "memory"), or returns None. The engine
     checks it before each optional model and each additional series, and skips work with a
