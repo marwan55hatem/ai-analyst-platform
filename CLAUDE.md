@@ -81,3 +81,14 @@ insights, model_runs, conversations, messages, reports.
 - `.gitattributes` has `* text=auto eol=lf` so shell scripts keep LF endings in Docker.
 - Git has a remote `origin` and a `main` branch. Branch per step; never push, the
   user pushes.
+
+## Workflow rules (every step)
+1. Do all the work yourself, including what you would normally ask the user to run in PowerShell: start the stack (`make up`, `make migrate`), run the manual walkthrough against it (upload the sample files, call the endpoints, read the results) and show the real outputs, trimmed to what matters, with a pass or fail per check. Do not hand over lists of commands.
+2. Leave the machine tidy: run `make down` at the end (this also stops containers started with `make db-up`), leave no background processes, and keep temp files only under the system temp folder.
+3. Secrets: never print, log or commit tokens, passwords or `.env` contents. Use throwaway demo users.
+4. When `make lint` and `make test` are green and the work is committed: `git push -u origin <branch>`; `gh pr create` (title = the commit title; body = what was built, test and coverage numbers, how it was verified, known limits, decisions for the user); then watch the checks to the end with `gh pr checks --watch`.
+5. If CI fails: read the failing log (`gh run view --log-failed`), find the cause, fix it with a NEW commit (never amend), push, and watch again. Maximum 3 attempts, then stop and report. When the cause is a difference between the user's Windows machine and the Linux CI runner, say so.
+6. Do NOT merge by yourself. Stop once CI is green and report: PR link, CI result and run time, test and coverage numbers, the manual check table, decisions for the user.
+7. When the user says "merge": run `gh pr merge --merge --delete-branch`, then `git switch main`, `git pull origin main`, `git branch -D <the merged step branch only>`, `git fetch --prune`, `git status`, `git log --oneline -3`, then watch the CI run on main to the end and report.
+8. Never force-push, rewrite history, push directly to main, change repository or branch settings, or delete anything other than the merged step branch.
+9. Stop and ask when something needs a judgement call: security, deleting data, costs, or a change to the plan.
