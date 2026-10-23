@@ -44,4 +44,6 @@ jobs:
           nproc
           free -m
           uv run --directory backend python -c "import os; print(os.cpu_count())"
-      - run: make test TEST_WORKERS=2
+      # runner: 4 CPUs, ~16 GB; a worker peaks at ~700 MB, so 4 workers stay far below
+      # 70% of memory and CPU is the limit
+      - run: make test TEST_WORKERS=4
