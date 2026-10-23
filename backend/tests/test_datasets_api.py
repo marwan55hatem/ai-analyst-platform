@@ -144,6 +144,20 @@ def test_header_only_file_fails_with_message(client: TestClient) -> None:
         ("data.csv", b"MZ" + b"\x00" * 50),
         ("data.csv", b"id,name\n1,\x00\x00\x00\n"),
     ],
+    # fixed ids: the xlsx bytes carry a zip timestamp, and pytest-xdist workers must
+    # collect identical test ids
+    ids=[
+        "exe-ext",
+        "txt-ext",
+        "no-ext",
+        "xls-ole",
+        "xlsx-named-csv",
+        "csv-named-xlsx",
+        "png-named-csv",
+        "pdf-named-csv",
+        "exe-named-csv",
+        "nul-bytes",
+    ],
 )
 def test_wrong_type_or_content_is_rejected(
     client: TestClient, filename: str, content: bytes

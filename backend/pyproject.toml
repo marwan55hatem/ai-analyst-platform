@@ -41,6 +41,7 @@ dev = [
     "pre-commit",
     "pyyaml",
     "types-pyyaml",
+    "pytest-xdist>=3.8.0",
 ]
 
 [build-system]
@@ -83,7 +84,10 @@ disable_error_code = ["untyped-decorator"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: takes 10s or more locally (large files or several full analysis runs); still part of make test and CI"]
+markers = [
+    "slow: takes 10s or more locally (large files or several full analysis runs); still part of make test and CI",
+    "serial: must not share the machine with other tests (memory or timing assertions, shared Redis key); runs in a separate pass after the parallel one when TEST_WORKERS > 1",
+]
 filterwarnings = [
     "ignore::SyntaxWarning",
     "ignore::DeprecationWarning:mlflow.*",
