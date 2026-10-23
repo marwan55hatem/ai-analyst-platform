@@ -1,6 +1,8 @@
 """Shared fixtures: a real Postgres database built by Alembic migrations."""
 
+import atexit
 import os
+import shutil
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,11 +12,21 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
 
 DEFAULT_URL = "postgresql+psycopg://analyst:analyst@localhost:5432/analyst"
-TEST_DB = "analyst_test"
 ROOT = Path(__file__).resolve().parents[1]
+
+# pytest-xdist sets PYTEST_XDIST_WORKER (gw0, gw1, ...); a serial run has none.
+# Each worker gets its own database so TRUNCATE in one never touches another.
+WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
+WORKER_SUFFIX = f"_{WORKER}" if WORKER else ""
+TEST_DB = f"analyst_test{WORKER_SUFFIX}"
 
 _base_url = make_url(os.environ.get("DATABASE_URL", DEFAULT_URL))
 TEST_URL = _base_url.set(database=TEST_DB)
+
+_STORAGE = tempfile.mkdtemp(prefix=f"analyst-test-storage{WORKER_SUFFIX}-")
+_MLFLOW = tempfile.mkdtemp(prefix=f"analyst-test-mlflow{WORKER_SUFFIX}-")
+for _d in (_STORAGE, _MLFLOW):
+    atexit.register(shutil.rmtree, _d, ignore_errors=True)
 
 # Must be set before the app (and its cached settings) are imported.
 os.environ.update(
@@ -29,9 +41,9 @@ os.environ.update(
         "FORECAST_MEMORY_MB": "100000",
         "AUTO_ANALYZE": "false",
         "CORS_ORIGINS": "http://localhost:3000",
-        "STORAGE_DIR": tempfile.mkdtemp(prefix="analyst-test-storage-"),
+        "STORAGE_DIR": _STORAGE,
         # forecasts log to a throwaway local store, never to a server
-        "MLFLOW_TRACKING_URI": Path(tempfile.mkdtemp(prefix="analyst-test-mlflow-")).as_uri(),
+        "MLFLOW_TRACKING_URI": Path(_MLFLOW).as_uri(),
     }
 )
 
@@ -81,6 +93,8 @@ def database() -> Iterator[URL]:
     command.upgrade(alembic_config(TEST_URL), "head")
     yield TEST_URL
     get_engine().dispose()
+    if WORKER:
+        drop_database(TEST_DB)
 
 
 @pytest.fixture

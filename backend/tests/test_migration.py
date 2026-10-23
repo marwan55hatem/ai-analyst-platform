@@ -5,9 +5,15 @@ from alembic import command
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 
-from tests.conftest import _base_url, alembic_config, drop_database, recreate_database
+from tests.conftest import (
+    WORKER_SUFFIX,
+    _base_url,
+    alembic_config,
+    drop_database,
+    recreate_database,
+)
 
-DB = "analyst_migration_test"
+DB = f"analyst_migration_test{WORKER_SUFFIX}"
 
 
 @pytest.fixture

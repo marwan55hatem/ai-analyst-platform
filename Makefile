@@ -1,4 +1,5 @@
 COV_MIN ?= 85
+TEST_WORKERS ?= 1
 
 .PHONY: up down logs test lint migrate seed db-up check-storage
 
@@ -15,7 +16,7 @@ db-up:
 	docker compose up -d --wait postgres redis
 
 test:
-	uv run --directory backend pytest --cov=app --cov-report=term-missing --cov-report=json
+	uv run --directory backend python scripts/run_tests.py
 	uv run --directory backend python scripts/check_coverage.py --min $(COV_MIN)
 
 lint:

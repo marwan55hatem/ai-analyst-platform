@@ -2,7 +2,10 @@ name: ci
 on:
   push:
     branches: [main]
+    # docs-only changes skip the job; any other file in the change runs it in full
+    paths-ignore: ["docs/**", "*.md", "**/*.md", "CLAUDE.md"]
   pull_request:
+    paths-ignore: ["docs/**", "*.md", "**/*.md", "CLAUDE.md"]
 
 jobs:
   backend:
@@ -36,4 +39,6 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - run: uv sync --directory backend --frozen
       - run: make lint
-      - run: make test
+      # runner: 4 CPUs, ~16 GB; a worker peaks at ~700 MB, so 4 workers stay far below
+      # 70% of memory and CPU is the limit
+      - run: make test TEST_WORKERS=4
