@@ -51,7 +51,7 @@ method, warnings.
 
 ## Core tables
 tenants, users, datasets, dataset_versions, column_profiles, analysis_runs,
-insights, model_runs, segment_assignments, conversations, messages, reports.
+insights, model_runs, segment_assignments, churn_scores, conversations, messages, reports.
 
 ## Progress log (append one line after each finished step)
 - [x] Step 0 bootstrap — monorepo skeleton: FastAPI health, Celery ping, compose stack, Makefile, CI, pre-commit
@@ -61,7 +61,7 @@ insights, model_runs, segment_assignments, conversations, messages, reports.
 - [x] Step 4 analytics pipeline — AnalysisModule framework + registry + capability detection, KPI / trend+STL seasonality / Pareto+dead stock / cohort retention modules on a hardened per-run DuckDB table, impact score, data-quality caveats, net-vs-refund rules, auto-run after profiling, /analyze, runs and insights endpoints, ground-truth dataset recovered exactly, 600+ tests with app/ml coverage gate
 - [x] Step 5 forecasting — ForecastModule (total + top 5 categories) with rolling-origin backtests of seasonal naive/ETS/ARIMA/Theta/LightGBM, MASE winner that must beat the baseline, 80/95% ranges, honest low-confidence wording, partial-period drop, time/series/memory budgets, per-tenant MLflow runs, async POST /datasets/{id}/forecast via Celery (model_runs), --years 3 generator, forecasting coverage gate
 - [x] Step 6 anomalies and segmentation — AnomalyModule (STL robust z + Isolation Forest consensus, spike/drop events, CUSUM level shifts on YoY weekly orders/revenue, SQL drill-down of likely contributors, row-level checks on a bounded sample) and SegmentationModule (SQL RFM with explicit segment map and suggestions, K-Means k 3-8 by silhouette, bootstrap ARI stability, deterministic names), segment_assignments table with pseudonyms for PII ids, /anomalies and /segments endpoints, data-requirement skip reasons, planted anomalies/groups in the generator, 742 tests with coverage gates for both modules
-- [ ] Step 7 churn, drivers, what-if
+- [x] Step 7 churn, drivers, what-if — ChurnModule (no-purchase-in-W label, leakage-tested cutoff features, out-of-time logistic vs LightGBM, calibrated, SHAP reasons, probability + top-10% rank bands, churn_scores table with pseudonyms), DriverModule (LightGBM + SHAP, permutation cross-check, partial dependence, association wording capped at medium), WhatIfEngine (clustered log-log elasticity with sanity rule and scope fallback, price/discount/volume/cost ranges with assumptions and extrapolation warnings, +/-30% cap, 3 scenarios), /churn /drivers /what-if endpoints, planted churn/elasticity/driver flags, 792 tests with coverage gates for all three
 - [ ] Step 8 agent and chat backend
 - [ ] Step 9 evaluation suite
 - [ ] Step 10 reports and alerts

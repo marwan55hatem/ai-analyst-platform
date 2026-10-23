@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     segment_max_customers: int = 100_000
     segment_bootstrap_rounds: int = 20
     segment_max_seconds: float = 60.0
+    churn_max_customers: int = 200_000
+    churn_max_seconds: float = 60.0
+    driver_max_rows: int = 50_000
+    driver_shap_rows: int = 2_000
+    driver_max_seconds: float = 60.0
+    whatif_max_concurrent: int = 2
     pseudonym_secret: str = ""
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"

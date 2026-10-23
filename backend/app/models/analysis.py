@@ -120,3 +120,32 @@ class SegmentAssignment(TenantMixin, Base):
     monetary: Mapped[float] = mapped_column(Numeric(24, 4))
     cluster: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     cluster_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+
+class ChurnScore(TenantMixin, Base):
+    """Estimated churn risk of one customer in a run, with its top reasons.
+
+    `customer_key` follows the segment_assignments rule: the id as in the file, or a pseudonym when
+    the column is flagged as personal data. A re-run replaces a version's rows.
+    """
+
+    __tablename__ = "churn_scores"
+    __table_args__ = (Index("ix_churn_scores_run_band", "tenant_id", "run_id", "risk_band"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="CASCADE"), index=True
+    )
+    dataset_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("dataset_versions.id", ondelete="CASCADE"), index=True
+    )
+    customer_key: Mapped[str] = mapped_column(String(200))
+    probability: Mapped[float] = mapped_column(Float)
+    risk_band: Mapped[str] = mapped_column(String(10))
+    rank_band: Mapped[str] = mapped_column(String(20))
+    revenue_at_stake: Mapped[float] = mapped_column(Numeric(24, 4))
+    expected_loss: Mapped[float] = mapped_column(Numeric(24, 4))
+    recency_days: Mapped[int] = mapped_column(Integer)
+    frequency: Mapped[int] = mapped_column(Integer)
+    monetary: Mapped[float] = mapped_column(Numeric(24, 4))
+    reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)

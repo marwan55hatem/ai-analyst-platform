@@ -17,6 +17,9 @@ GUARDED_PACKAGES = (
     "app/ml/forecasting",
     "app/ml/anomaly",
     "app/ml/segmentation",
+    "app/ml/churn",
+    "app/ml/drivers",
+    "app/ml/whatif",
 )
 # Security-critical files held to a stricter bar than the package minimum.
 GUARDED_FILES = {
@@ -26,6 +29,10 @@ GUARDED_FILES = {
     "app/ml/modules/anomalies.py": 85.0,
     "app/ml/modules/segments.py": 85.0,
     "app/services/findings.py": 85.0,
+    # Step 7: churn, drivers and what-if, each at least 85%
+    "app/ml/modules/churn.py": 85.0,
+    "app/ml/modules/drivers.py": 85.0,
+    "app/services/whatif.py": 85.0,
 }
 
 

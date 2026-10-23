@@ -32,6 +32,7 @@ USED_ROLES = (
     "region",
     "channel",
     "discount",
+    "churn_flag",
 )
 DIMENSION_ROLES = ("product", "category", "region", "channel")
 

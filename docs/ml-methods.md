@@ -99,6 +99,14 @@ than 12 medium, otherwise high. Seasonality without STL (under 24 months) is alw
 | `forecast` | date + (revenue or quantity) | rolling-origin backtested forecast of net revenue (or quantity) for the whole business and its top 5 categories (or products), default 6 periods, with 80% and 95% ranges. See [Forecast](#forecast). |
 | `anomalies` | date, revenue (richer with order id, quantity, price, discount, dimensions) | unusual days (weeks, months) with likely contributors, lasting level shifts, and row-level oddities. See [Anomalies](#anomalies). |
 | `segmentation` | customer_id, date, revenue; 100+ customers | RFM segments with rule-based suggestions, K-Means customer groups with a stability check, and paginated per-customer assignments. See [Segmentation](#segmentation). |
+| `churn` | customer_id, date, revenue; 500+ customers, 50+ churners | estimated churn risk per active customer with revenue at stake and top 3 reasons, model check out of time. See [Churn risk](#churn-risk). |
+| `drivers` | date, revenue and one of price, discount, category, region, channel (the weekday always counts); 500+ rows | factors associated with revenue per line (SHAP, permutation, partial dependence). See [Revenue drivers](#revenue-drivers). |
+
+The what-if engine is not a module: `POST /datasets/{id}/what-if` answers on demand. See [What-if](#what-if).
+
+A module may also raise `ModuleSkipped(reason)` once it has looked at the data (for facts the stored
+profile cannot know, such as how many customers churned); the run records it as `skipped` with
+"<reason>, so <module> is skipped", exactly like a capability reason.
 
 Modules may also declare a **data requirement** (`data_requirement(DataFacts)`), read from the stored
 profile without touching the data: too little history, too coarse dates or too few customers. The
@@ -360,3 +368,193 @@ not explain it, and every recommended action is a rule-based **suggestion**.
   has less structure. A high ARI means the grouping is reproducible, not that it is "true".
 * RFM quintiles are relative to this dataset's customers; the same customer can change segment as the
   data grows.
+
+## Churn risk
+
+`app/ml/churn/` (label, features, models) and `app/ml/modules/churn.py` (the module). Needs customer_id,
+date and revenue and at least 500 customers ("only N customers; churn risk needs at least 500, so churn
+risk is skipped"). Every text says **estimated risk**; nothing says a customer will leave.
+
+### Label
+
+* **Window W** = 2 x the typical gap between purchases, clamped to 30-180 days. The typical gap is the
+  median, over customers with at least two purchase days, of each customer's own median gap between
+  consecutive purchase days (customer-weighted, so frequent buyers do not set W alone).
+* **end** = the last date with a positive purchase. Evaluation cutoff `c2 = end - W`, training cutoff
+  `c1 = c2 - W`: the training labels end exactly where the evaluation labels begin.
+* At a cutoff c, the **population** is every customer with a positive purchase in the 365 days up to c
+  (customers gone for a year have already lapsed and would make the model look better than it is).
+  **Churned** = no positive purchase in (c, c + W].
+* Needs max(180, 2W) days of history before c1, and at least 50 churners with a churn rate between 3% and
+  97% at both cutoffs; otherwise the module is skipped with the numbers.
+* **churn_flag** (a column whose role is `churn_flag`; yes/no, 1/0, true/false, churned/active and Arabic
+  نعم/لا are understood): the flag is the label (any "yes" row marks the customer), the model is checked by
+  stratified 5-fold cross-validation, recency and spend trend are left out (the flag has no date, so they
+  could describe behaviour after leaving), only customers not flagged are scored, confidence is capped at
+  medium and a warning says all this. Features still come from purchases, so date and revenue are needed.
+
+### Features and leakage control
+
+Per customer, from positive purchases **on or before the cutoff only**: recency (days since the last
+purchase), frequency (orders, or rows without an order id), monetary (spend), tenure (days since the first
+purchase), spend trend (log of (spend in the last 90 days + 1) / (spend in the 90 before + 1)), average gap
+between purchase days (365 for one-day customers), distinct categories (with a category column) and the
+share of spend bought on discount (with a discount column).
+
+* One SQL builder (`features_sql(ctx, cutoff)`) serves training (c1), evaluation (c2) and scoring (end). Its
+  `purchases` CTE filters `day <= cutoff` before any aggregate, and the label is a separate CTE over
+  (cutoff, cutoff + W].
+* **Leakage test**: rewriting, deleting and adding rows after a cutoff leaves every feature unchanged; rows
+  after cutoff + W never change a label (`tests/test_churn_units.py`).
+* No random split across time: the model learns at c1 and is scored on what happened after c2.
+
+### Models, calibration and metrics
+
+* Logistic regression (signed log1p, standardized) as the baseline and LightGBM (200 trees, 15 leaves, fixed
+  seed, one thread). Both are calibrated with `CalibratedClassifierCV(ensemble=False)`: isotonic with 1,000+
+  customers, Platt (sigmoid) below; the calibration folds stay inside one snapshot.
+* Out-of-time metrics for both: AUC, PR-AUC, Brier score and top-decile lift (churn rate of the 10% with the
+  highest estimated risk over the overall rate). The winner has the higher PR-AUC (ties go to logistic).
+* The winner is refitted (and recalibrated) on the c2 snapshot and scores every customer active in the last
+  year with features as of `end`. Probabilities are kept within 0.5%-99.5%.
+* **Confidence**: high needs AUC >= 0.8 and 200+ churners, medium AUC >= 0.7, otherwise low (below 0.65 the
+  text says the model separates leavers poorly); then capped by the number of scored customers
+  (`confidence_for`) and the data-quality caveats.
+* Limits: `CHURN_MAX_CUSTOMERS` per snapshot (a fixed random sample, with a warning) and
+  `CHURN_MAX_SECONDS` (LightGBM is skipped when the time is used up).
+
+### Risk bands, reasons and revenue at stake
+
+* **Probability bands**: high >= 50%, medium 25-50%, low < 25%. **Rank band**: `top_10pct` (the 10% with the
+  highest estimated risk) or `rest`. Both are stored for every customer and can be filtered on
+  `GET /analysis-runs/{id}/churn`.
+* The insight always names its basis. When no customer reaches 25% or the checked churn rate is below 10%,
+  the **rank view leads** ("the 10% of customers with the highest estimated risk spend ... a year") and the
+  text says the absolute probabilities are low.
+* Revenue at stake = yearly spend (spend x 365 / max(tenure, 365), as in segmentation); expected loss =
+  probability x revenue at stake. The money effect of the insight is the expected loss of the high band
+  (of the top 10% when the rank view leads).
+* **Global importance**: mean |SHAP| (TreeExplainer for LightGBM, LinearExplainer for logistic) over all
+  scored customers; SHAP runs once per customer, in batches of 5,000, for both importance and reasons. **Top 3 reasons** per customer: the three largest
+  |SHAP| values with their direction, in words ("no purchase for 140 days (typical: 17) raises the estimated
+  risk"; typical = the median of scored customers). SHAP is computed on the uncalibrated model (log-odds),
+  which orders reasons the same way. A test checks SHAP equals LightGBM's own tree contributions.
+
+### Storage and privacy
+
+`churn_scores` (migration 0009): one row per scored customer with probability, both bands, revenue at stake,
+expected loss, recency, frequency, spend and the reasons; index (tenant_id, run_id, risk_band); replaced on
+re-run like insights. The customer key follows the segmentation rule: the raw id, or `cust_` +
+HMAC-SHA256 pseudonym when the customer_id column is flagged as personal data. Insight text, charts and
+evidence hold counts and averages only (evidence: active customers and churners per cutoff, averages of
+churners vs stayers); a test checks no email, phone or raw id appears anywhere.
+
+### Evaluation on planted data
+
+`ground_truth_generator.py --churn` replaces the customer pool with 1,500 customers who sign up over the
+history, buy at their own rate (lognormal around one purchase per 30 days) and leave after an exponential
+lifetime (mean 600 days); over the 120 days before leaving their rate falls linearly to a quarter. The
+tests require an out-of-time AUC of at least 0.75 (2 years seeds 11 and 5, 3 years seed 11).
+
+Measured with this code: out-of-time AUC 0.88-0.90 on 2- and 3-year files (seeds 11 and 5; the winner
+alternates between logistic and LightGBM, which score within 0.02 of each other), top-decile lift 2.3-2.6,
+W = 31-32 days (a typical gap of about 16 days). The walkthrough file (`--years 3 --churn --elasticity
+--drivers --anomalies`) scored 958 active customers, AUC 0.90, 349 at high estimated risk.
+
+## Revenue drivers
+
+`app/ml/drivers/model.py` and `app/ml/modules/drivers.py`. The text always says the result describes
+**association, not proven cause**, and confidence is never above medium.
+
+* **Data**: positive lines with a date (refunds excluded with a warning); a fixed hash sample of
+  `DRIVER_MAX_ROWS`. Candidate factors: unit price, discount rate (fraction, % or amount, as in anomalies),
+  category, region, channel and the weekday (always available from the date).
+* **Target**: log(1 + revenue) per line, so effects read as "% more revenue per line" for small and large
+  lines alike. **Time split**: the last 20% of dates are the holdout.
+* **Model**: LightGBM regressor (300 trees, fixed seed, one thread, categories native).
+* **Importance**: mean |SHAP| (TreeExplainer) on a fixed sample of `DRIVER_SHAP_ROWS` training lines, shown as
+  shares; **cross-check**: permutation importance (R² drop, 5 repeats) on the holdout. A factor whose drop is
+  under 0.005 is listed as "no clear link on later lines" and gets no effect sentence.
+* **Partial dependence** for the top 3: the average prediction with the factor set to each grid value
+  (levels, or up to 8 quantiles), shown relative to the average line; the text compares the highest and
+  lowest point as a ratio ("lines at discount 30% average about 46% more revenue than at 0%").
+* **Confidence**: medium; low when the holdout R² is below 0.1 ("the factors explain little") or when SHAP and
+  permutation disagree on the top factor ("the order is uncertain"); then capped by rows and data quality.
+* **Evidence**: average revenue per line by level (by fixed quantile bands for numbers with many values) of
+  each top factor, the raw association without controls.
+* Price is part of how a line's revenue is calculated, so part of its link is mechanical; the text says so.
+
+### Evaluation on planted data
+
+`--drivers` adds a `discount_pct` column (0/10/20/30%) whose discount multiplies a line's units by
+(1 + 4 x rate); revenue is after discount, so a 30% discount gives about +54% revenue per line. The tests
+require discount among the top 2 factors (2 years seeds 11 and 5, 3 years seed 11) and a partial-dependence
+lift between 35% and 75%.
+
+Measured with this code: discount ranks second after unit price on every planted file (2 and 3 years,
+seeds 11 and 5), with 8.7-10% of the SHAP importance and a partial-dependence lift of 41-55% at a 30% discount
+(planted +54%); region, channel, weekday and category are reported as "no clear link".
+
+## What-if
+
+`app/ml/whatif/elasticity.py`, `app/ml/whatif/scenarios.py` and `app/services/whatif.py`;
+`POST /datasets/{id}/what-if` with 1-3 scenarios `{lever, change_pct, scope, target}`. Every answer is a
+**range with its assumptions**, never a single promised number.
+
+### Elasticity
+
+* Rows: positive lines with quantity, price (or revenue / quantity) and a date. Each product's usual price is
+  the median of its weekly average prices; a line's price index is log(price / usual price).
+* Observations: (item, week) totals of units and the average price index (months when a group has fewer than
+  20 weeks with sales). A **category** is fitted on its weekly totals, a **product** on its own, and **all
+  items** pools the categories (or products) with item effects.
+* `log(units) = e x price index + item effects + month-of-year effects + trend [+ b x discount rate]`, OLS with
+  a 95% interval; when several items share a week their errors share its shocks, so standard errors are
+  clustered by week (HC1 with one row per week).
+* **Skipped**: fewer than 20 periods, price index standard deviation below 0.02 (about 2%) or fewer than 3
+  distinct price levels.
+* **Unreliable** (never used for a forecast): e > 0, |e| > 5, or a 95% interval that includes zero. The answer
+  says "price changes in this data are not clearly linked to sales" and falls back to the next broader scope
+  (product, then its category, then all items) or to "not enough evidence" with no revenue range.
+* When prices varied in only some of the groups behind a pooled estimate, a warning says so.
+* Planted check (`--elasticity`, category Office, weekly multipliers 0.75-1.25, demand x multiplier^-1.5): over
+  30 files (2 and 3 years, 5 seeds, with and without `--drivers` and `--churn`) the category estimate is within
+  0.3 of -1.5 in 29 and its interval holds -1.5 in 29. Product-level rows of the same weeks gave intervals that
+  held the truth in only 26 of 30 even with clustering, hence the category grain. With a planted elasticity of
+  +0.8 or 0 every scope is unreliable and the answer is "not enough evidence" (tested).
+
+### Scenarios
+
+Baseline: the last 12 complete months of the scope (fewer, down to 3, are scaled to a year with a warning and
+low confidence); its band is +/- 1.96 x sd / mean / sqrt(months) of monthly revenue ("normal month-to-month
+variation"). Changes are capped at +/-30% (422).
+
+| Lever | Units | Revenue | Profit (needs cost) | Range from |
+| --- | --- | --- | --- | --- |
+| price +c | x (1+c)^e | x (1+c)^(1+e) | revenue change - cost x (units factor - 1) | e at its interval ends x baseline band |
+| discount +c (relative change of the average rate r) | x exp(b x r x c) | units factor x (1 - r(1+c)) / (1 - r) | as for price | b at its interval ends x baseline band |
+| volume +c | +c | +c x revenue | +c x (revenue - cost) | extra units from the cheapest to the dearest group x band |
+| cost +c | same | unchanged | -c x cost | baseline band of cost |
+
+* **Extrapolation risk** warning (and low confidence) when the change is outside what the data has seen: p5-p95
+  of the price index (price), of the weekly discount rate relative to today's (discount), of monthly units
+  relative to the median month (volume) or of monthly unit cost (cost).
+* Assumptions listed every time: the next 12 months look like the baseline, only this lever changes, unit cost
+  per unit stays the same, the elasticity used (scope, value, interval, controls), and that this is an
+  association in past sales, not a controlled test. Without a cost column, profit is "not available".
+* Confidence: medium at best (observational data); low with extrapolation, a short baseline, or an interval
+  wider than the estimate itself.
+* Evidence: the monthly baseline SQL and the SQL of every elasticity group tried, all passing `validate_sql`.
+* Summaries round amounts to 3 significant figures; the JSON keeps exact values.
+
+### Statistical caveats (Step 7)
+
+* Churn, drivers and elasticity are learned from past behaviour: none of them is a controlled experiment.
+* The churn check uses a single later window, so its AUC moves by a few points between datasets of the same
+  kind; isotonic calibration on a few hundred churners is coarse.
+* SHAP shares credit between correlated factors (unit price and category); permutation importance on later
+  data is the cross-check.
+* Prices set in response to demand bias elasticity; weeks without sales are dropped (sparse items lean
+  towards zero); the scope fallback is a small specification search, which is why the scope used and every
+  estimate tried are returned.
+* The baseline band includes seasonality, so it is wide for seasonal businesses.

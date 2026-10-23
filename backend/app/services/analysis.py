@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.core.errors import ConflictError
 from app.db.repository import (
     AnalysisRunRepository,
+    ChurnScoreRepository,
     ColumnProfileRepository,
     DatasetVersionRepository,
     InsightRepository,
@@ -20,8 +21,9 @@ from app.db.repository import (
 )
 from app.db.session import get_sessionmaker
 from app.ml import capabilities, registry
-from app.ml.base import AnalysisContext, DataFacts, Insight
+from app.ml.base import AnalysisContext, DataFacts, Insight, ModuleSkipped
 from app.ml.engine import open_analysis
+from app.ml.modules.churn import CACHE_KEY as CHURN_CACHE_KEY
 from app.ml.modules.segments import CACHE_KEY as SEGMENT_CACHE_KEY
 from app.ml.quality import QualityContext
 from app.ml.roles import RoleMap
@@ -36,7 +38,11 @@ ANALYSIS_FAILED_MESSAGE = "The analysis failed. Please try running it again."
 ANALYSIS_START_FAILED = "The analysis could not be started. Please try again later."
 ANALYSIS_STUCK_ERROR = "The analysis timed out. Please run it again."
 MODULE_ERROR_LIMIT = 300
-SEGMENT_MODULE = "segmentation"
+# Per-customer rows a module leaves in the cache: (module, cache key, repository, what is saved)
+PER_CUSTOMER = (
+    ("segmentation", SEGMENT_CACHE_KEY, SegmentAssignmentRepository, "the customer segments"),
+    ("churn", CHURN_CACHE_KEY, ChurnScoreRepository, "the churn scores"),
+)
 
 
 # ---- request side --------------------------------------------------------------------------
@@ -67,7 +73,7 @@ def capabilities_payload(
     }
 
 
-def _merged_config(
+def merged_config(
     db: Session, tenant_id: uuid.UUID, version: DatasetVersion, explicit: dict[str, Any]
 ) -> dict[str, Any]:
     """Explicit settings win; anything left out is inherited from the version's last run."""
@@ -82,7 +88,7 @@ def start_analysis(
 ) -> AnalysisRun:
     """Validate and queue a (re-)run for a version with a ready profile."""
     require_profile(version)
-    config = _merged_config(db, tenant_id, version, explicit)
+    config = merged_config(db, tenant_id, version, explicit)
     _roles_for(db, tenant_id, version, config.get("date_column"))  # 422 for a bad date column
     locked = DatasetVersionRepository(db, tenant_id).get_or_404(version.id, for_update=True)
     if AnalysisRunRepository(db, tenant_id).active_for_version(locked.id) is not None:
@@ -105,7 +111,7 @@ def enqueue_analysis(db: Session, tenant_id: uuid.UUID, version: DatasetVersion)
     try:
         if AnalysisRunRepository(db, tenant_id).active_for_version(version.id) is not None:
             return
-        config = _merged_config(db, tenant_id, version, {})
+        config = merged_config(db, tenant_id, version, {})
         run = AnalysisRunRepository(db, tenant_id).add(
             dataset_version_id=version.id,
             status=AnalysisStatus.pending.value,
@@ -245,29 +251,30 @@ def _store_assignments(
     progress: dict[str, Any],
     collected: list[Insight],
 ) -> None:
-    """Replace the version's per-customer segments while the DuckDB connection is still open."""
-    repo = SegmentAssignmentRepository(db, tenant_id)
-    repo.delete_for_version(version_id)
-    make = context.cache.get(SEGMENT_CACHE_KEY)
-    state = progress["modules"].get(SEGMENT_MODULE, {})
-    if make is None or state.get("status") != "completed":
-        return
-    savepoint = db.begin_nested()
-    try:
-        for batch in make():
-            repo.add_many(run.id, version_id, batch)
-        savepoint.commit()
-    except Exception as exc:
-        logger.exception("segment_assignments_failed", run_id=str(run.id))
-        savepoint.rollback()
-        message = f"{type(exc).__name__}: {exc}"[:MODULE_ERROR_LIMIT]
-        collected[:] = [i for i in collected if i.module != SEGMENT_MODULE]
-        progress["modules"][SEGMENT_MODULE] = {
-            "status": "failed",
-            "error": message,
-            "insights": 0,
-            "warnings": [f"Saving the customer segments failed: {message}"],
-        }
+    """Replace the version's per-customer rows while the DuckDB connection is still open."""
+    for module, key, repo_class, what in PER_CUSTOMER:
+        repo = repo_class(db, tenant_id)
+        repo.delete_for_version(version_id)
+        make = context.cache.get(key)
+        state = progress["modules"].get(module, {})
+        if make is None or state.get("status") != "completed":
+            continue
+        savepoint = db.begin_nested()
+        try:
+            for batch in make():
+                repo.add_many(run.id, version_id, batch)
+            savepoint.commit()
+        except Exception as exc:
+            logger.exception("per_customer_rows_failed", run_id=str(run.id), module=module)
+            savepoint.rollback()
+            message = f"{type(exc).__name__}: {exc}"[:MODULE_ERROR_LIMIT]
+            collected[:] = [i for i in collected if i.module != module]
+            progress["modules"][module] = {
+                "status": "failed",
+                "error": message,
+                "insights": 0,
+                "warnings": [f"Saving {what} failed: {message}"],
+            }
 
 
 def _run_module(module: Any, context: AnalysisContext, collected: list[Insight]) -> dict[str, Any]:
@@ -278,6 +285,9 @@ def _run_module(module: Any, context: AnalysisContext, collected: list[Insight])
     context.warnings.clear()
     try:
         found = module.run(context)
+    except ModuleSkipped as skip:
+        reason = f"{skip.reason}, so {module.title.lower()} is skipped"
+        return {"status": "skipped", "reason": reason, "insights": 0, "warnings": []}
     except Exception as exc:
         logger.exception("analysis_module_failed", module=module.name)
         message = f"{type(exc).__name__}: {exc}"[:MODULE_ERROR_LIMIT]

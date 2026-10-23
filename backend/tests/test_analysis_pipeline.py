@@ -64,6 +64,8 @@ def test_every_evidence_query_is_valid_and_reproducible(
         "forecast",
         "anomalies",
         "segmentation",
+        "churn",
+        "drivers",
     }
     checked = replay_evidence(client, db, owner, run, insights)
     assert checked >= 10
@@ -84,6 +86,8 @@ def test_capabilities_for_a_full_dataset_and_one_without_customer_id(
         "forecast": True,
         "anomalies": True,
         "segmentation": True,
+        "churn": True,
+        "drivers": True,
     }
 
     slim = upload_ready(client, owner, drop_columns(content, {"customer_id"}), "slim.csv")
@@ -397,7 +401,7 @@ def test_auto_enqueue_never_raises_and_skips_active_runs(
     def broken(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(service, "_merged_config", broken)
+    monkeypatch.setattr(service, "merged_config", broken)
     service.enqueue_analysis(db, tenant, version)  # swallowed
     assert db.scalar(select(func.count()).select_from(AnalysisRun)) == 0
 

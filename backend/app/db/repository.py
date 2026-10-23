@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
-from app.models.analysis import AnalysisRun, AnalysisStatus, Insight, SegmentAssignment
+from app.models.analysis import (
+    AnalysisRun,
+    AnalysisStatus,
+    ChurnScore,
+    Insight,
+    SegmentAssignment,
+)
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
@@ -294,6 +300,55 @@ class SegmentAssignmentRepository(TenantRepository[SegmentAssignment]):
             delete(SegmentAssignment).where(
                 SegmentAssignment.tenant_id == self.tenant_id,
                 SegmentAssignment.dataset_version_id == version_id,
+            )
+        )
+
+
+class ChurnScoreRepository(TenantRepository[ChurnScore]):
+    """Per-customer churn risk of one tenant."""
+
+    model = ChurnScore
+
+    def add_many(
+        self, run_id: uuid.UUID, version_id: uuid.UUID, rows: list[dict[str, Any]]
+    ) -> None:
+        """Insert a batch of scores for a run (tenant_id is always set here)."""
+        if not rows:
+            return
+        if any("tenant_id" in r for r in rows):
+            raise ValueError("tenant_id is set by the repository")
+        fixed = {"tenant_id": self.tenant_id, "run_id": run_id, "dataset_version_id": version_id}
+        self.session.execute(insert(ChurnScore), [{**r, **fixed} for r in rows])
+
+    def page(
+        self,
+        run_id: uuid.UUID,
+        *,
+        risk_band: str | None = None,
+        rank_band: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[ChurnScore], int]:
+        """Return one page of a run's scores (highest estimated risk first) and the total."""
+        stmt = self._select().where(ChurnScore.run_id == run_id)
+        if risk_band is not None:
+            stmt = stmt.where(ChurnScore.risk_band == risk_band)
+        if rank_band is not None:
+            stmt = stmt.where(ChurnScore.rank_band == rank_band)
+        total = self.session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+        rows = self.session.scalars(
+            stmt.order_by(ChurnScore.probability.desc(), ChurnScore.customer_key, ChurnScore.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(rows), int(total)
+
+    def delete_for_version(self, version_id: uuid.UUID) -> None:
+        """Remove every score of a version (a re-run replaces them)."""
+        self.session.execute(
+            delete(ChurnScore).where(
+                ChurnScore.tenant_id == self.tenant_id,
+                ChurnScore.dataset_version_id == version_id,
             )
         )
 

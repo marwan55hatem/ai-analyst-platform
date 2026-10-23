@@ -42,6 +42,9 @@ ANALYSIS_ROUTES = {
     ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
     ("GET", "/api/v1/analysis-runs/{run_id}/anomalies"),
     ("GET", "/api/v1/analysis-runs/{run_id}/segments"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/churn"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/drivers"),
+    ("POST", "/api/v1/datasets/{dataset_id}/what-if"),
     ("GET", "/api/v1/insights/{insight_id}"),
 }
 FORECAST_ROUTES = {
@@ -63,6 +66,9 @@ PUBLIC_ROUTES = {
 def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -> int:
     if "/columns/" in path:
         body = {"role": "revenue"}
+        return client.request(method, path, headers=headers, json=body).status_code
+    if method == "POST" and path.endswith("/what-if"):
+        body = {"scenarios": [{"lever": "volume", "change_pct": 5}]}
         return client.request(method, path, headers=headers, json=body).status_code
     if method == "POST" and path.endswith("/forecast"):
         return client.request(method, path, headers=headers, json={}).status_code
