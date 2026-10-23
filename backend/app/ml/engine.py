@@ -31,7 +31,15 @@ _DECIMAL_TYPES = {
     "price": "DECIMAL(18,4)",
     "discount": "DECIMAL(18,4)",
 }
-_TEXT_ROLES = ("customer_id", "order_id", "product", "category", "region", "channel")
+_TEXT_ROLES = (
+    "customer_id",
+    "order_id",
+    "product",
+    "category",
+    "region",
+    "channel",
+    "churn_flag",
+)
 
 
 class AnalysisConnection:

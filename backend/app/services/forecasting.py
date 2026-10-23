@@ -17,7 +17,7 @@ from app.ml.modules.forecast import ForecastModule, resolve_group_column
 from app.models.dataset import DatasetVersion
 from app.models.model_run import ModelRun
 from app.schemas.forecast import ForecastRequest
-from app.services.analysis import _merged_config, _roles_for, analysis_context
+from app.services.analysis import _roles_for, analysis_context, merged_config
 from app.services.profiling.service import require_profile
 
 logger = structlog.get_logger()
@@ -32,7 +32,7 @@ def validate_request(
     """Check a request against the dataset and the configured limits; return the module config."""
     settings = get_settings()
     require_profile(version)
-    base = _merged_config(db, tenant_id, version, {})
+    base = merged_config(db, tenant_id, version, {})
     date_column = request.date_column or base.get("date_column")
     roles = _roles_for(db, tenant_id, version, date_column)
     if not roles.has("date"):

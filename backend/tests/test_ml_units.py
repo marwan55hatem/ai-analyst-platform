@@ -88,7 +88,10 @@ def test_capability_reasons_are_plain_language() -> None:
         ["d", "r", "c"],
     )
     caps = {c.name: c for c in capabilities.detect(registry.all_modules(), full)}
-    assert all(c.available for c in caps.values())
+    assert all(c.available for name, c in caps.items() if name != "drivers")
+    assert caps["drivers"].reason == (
+        "no category or channel or discount or price or region column, so revenue drivers is skipped"
+    )
     assert caps["pareto"].notes == ["no product column, so dead stock is skipped"]
     no_date = RoleMap.from_profiles([profile("r", "revenue"), profile("p", "product")], ["r", "p"])
     assert registry.all_modules()[2].notes(no_date) == ["no date column, so dead stock is skipped"]

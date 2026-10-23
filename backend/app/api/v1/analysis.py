@@ -14,7 +14,9 @@ from app.schemas.analysis import (
     AnalyzeRequest,
     AnomaliesOut,
     CapabilitiesOut,
+    ChurnOut,
     Confidence,
+    DriversOut,
     InsightOut,
     InsightSummary,
     SegmentsOut,
@@ -186,3 +188,40 @@ def get_segments(
         db, user.tenant_id, run_id, segment=segment, cluster=cluster, limit=limit, offset=offset
     )
     return SegmentsOut.model_validate(found)
+
+
+@router.get(
+    "/analysis-runs/{run_id}/churn",
+    response_model=ChurnOut,
+    summary="Estimated churn risk of a run: model check, bands and a page of customers",
+)
+def get_churn(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    risk_band: Literal["high", "medium", "low"] | None = None,
+    rank_band: Literal["top_10pct", "rest"] | None = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> ChurnOut:
+    """Return the churn model summary and customers (highest estimated risk first)."""
+    found = findings.churn_payload(
+        db,
+        user.tenant_id,
+        run_id,
+        risk_band=risk_band,
+        rank_band=rank_band,
+        limit=limit,
+        offset=offset,
+    )
+    return ChurnOut.model_validate(found)
+
+
+@router.get(
+    "/analysis-runs/{run_id}/drivers",
+    response_model=DriversOut,
+    summary="Factors associated with revenue per line (association, not proven cause)",
+)
+def get_drivers(run_id: uuid.UUID, user: CurrentUser, db: DbSession) -> DriversOut:
+    """Return the driver importances and partial dependence of one run."""
+    return DriversOut.model_validate(findings.drivers_payload(db, user.tenant_id, run_id))

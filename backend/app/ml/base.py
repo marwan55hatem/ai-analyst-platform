@@ -13,6 +13,19 @@ from app.ml.roles import RoleMap
 Confidence = Literal["high", "medium", "low"]
 
 
+class ModuleSkipped(Exception):  # noqa: N818 - it is an outcome, not an error
+    """Raised by a module when the data turns out too small for it once it has looked.
+
+    The run records the module as skipped with this plain-language reason (for facts the stored
+    profile cannot know up front, such as how many customers churned).
+    """
+
+    def __init__(self, reason: str) -> None:
+        """Keep the reason for the run's progress entry."""
+        super().__init__(reason)
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class ModuleResult:
     """The convention every ML result follows: value, confidence, sample_size, method, warnings."""

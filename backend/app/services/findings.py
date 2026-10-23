@@ -1,4 +1,4 @@
-"""Read models for the anomaly and segment endpoints (assembled from stored insights)."""
+"""Read models for the anomaly, segment, churn and driver endpoints (from stored insights)."""
 
 import uuid
 from typing import Any
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.repository import (
     AnalysisRunRepository,
+    ChurnScoreRepository,
     InsightRepository,
     SegmentAssignmentRepository,
 )
@@ -14,6 +15,8 @@ from app.models.analysis import AnalysisRun, Insight
 
 ANOMALY_MODULE = "anomalies"
 SEGMENT_MODULE = "segmentation"
+CHURN_MODULE = "churn"
+DRIVER_MODULE = "drivers"
 
 
 def module_state(run: AnalysisRun, module: str) -> dict[str, Any]:
@@ -108,5 +111,65 @@ def segments_payload(
         "k": groups.get("k"),
         "stability": groups.get("stability"),
         "assignments": {"items": items, "total": total, "limit": limit, "offset": offset},
+        "insights": insights,
+    }
+
+
+def churn_payload(
+    db: Session,
+    tenant_id: uuid.UUID,
+    run_id: uuid.UUID,
+    *,
+    risk_band: str | None,
+    rank_band: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    """Return a run's churn model summary, risk bands and one page of per-customer risk."""
+    run = AnalysisRunRepository(db, tenant_id).get_or_404(run_id)
+    state = module_state(run, CHURN_MODULE)
+    insights = _module_insights(db, tenant_id, run.id, CHURN_MODULE)
+    risk = next((i.payload for i in insights if i.type == "churn_risk"), {})
+    model = next((i.payload for i in insights if i.type == "churn_model"), {})
+    items, total = ChurnScoreRepository(db, tenant_id).page(
+        run.id, risk_band=risk_band, rank_band=rank_band, limit=limit, offset=offset
+    )
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "module_status": state.get("status"),
+        "skipped_reason": state.get("reason"),
+        "warnings": state.get("warnings", []),
+        "pseudonymized_customer_ids": bool(risk.get("pseudonymized_customer_ids", False)),
+        "basis": risk.get("basis"),
+        "bands": risk.get("bands", {}),
+        "importance": risk.get("importance", []),
+        "model": {
+            k: model.get(k) for k in ("models", "winner", "validation", "calibration", "label")
+        }
+        if model
+        else None,
+        "customers": {"items": items, "total": total, "limit": limit, "offset": offset},
+        "insights": insights,
+    }
+
+
+def drivers_payload(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> dict[str, Any]:
+    """Return a run's revenue drivers: importances by both methods and partial dependence."""
+    run = AnalysisRunRepository(db, tenant_id).get_or_404(run_id)
+    state = module_state(run, DRIVER_MODULE)
+    insights = _module_insights(db, tenant_id, run.id, DRIVER_MODULE)
+    payload = next((i.payload for i in insights if i.type == "revenue_drivers"), {})
+    return {
+        "run_id": run.id,
+        "status": run.status,
+        "module_status": state.get("status"),
+        "skipped_reason": state.get("reason"),
+        "warnings": state.get("warnings", []),
+        "importance": payload.get("importance", []),
+        "partial_dependence": payload.get("partial_dependence", {}),
+        "r2_holdout": payload.get("r2_holdout"),
+        "methods_agree_on_top": payload.get("methods_agree_on_top"),
+        "association_not_causation": True,
         "insights": insights,
     }

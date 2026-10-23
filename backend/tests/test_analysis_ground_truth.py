@@ -35,6 +35,8 @@ def test_planted_facts_are_recovered_exactly(client: TestClient, tmp_path: Path,
         "forecast": "completed",
         "anomalies": "completed",
         "segmentation": "completed",
+        "churn": "completed",
+        "drivers": "completed",
     }
 
     kpi = _one(client, owner, insights, "kpi_summary")["payload"]

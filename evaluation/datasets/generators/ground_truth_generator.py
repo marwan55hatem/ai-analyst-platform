@@ -21,17 +21,29 @@ caused by bulk orders of a single product, and 2 drops), a +50% level shift and 
 (VIP, regular, lapsed, new) whose members are listed in the facts. Both use their own random
 streams and only change the output when switched on.
 
+`churn=True` (CLI `--churn`) replaces the customer pool with 1,500 customers who each sign up, buy at
+their own rate and may leave on a known date; before leaving their purchase rate falls linearly to a
+quarter over `CHURN_DECLINE_DAYS` (the planted "declining frequency" behaviour). It cannot be combined
+with `segments` (both decide who buys). `elasticity=True` (CLI `--elasticity`) moves the prices of
+category `ELASTIC_CATEGORY` by a weekly multiplier and draws that category's demand from it with a
+known price elasticity (`true_elasticity`, default -1.5); its lines are added to orders already placed
+that day, so no customer's purchase days change. `drivers=True` (CLI `--drivers`) adds a
+`discount_pct` column whose discount lifts the units of a line (the planted driver). Each of these
+uses its own random stream.
+
 `years=3` (CLI `--years 3`) extends the history to 2023-2025 with a PLANTED upward trend
 (`TREND_PER_YEAR`) on top of the same monthly seasonality, so the last year can be held out when
 testing forecasts. The default (2 years) is byte-for-byte what Step 4 expects. `--daily-series`
 writes a separate short daily file with a planted trend and weekly seasonality.
 
 Run `python ground_truth_generator.py <output_dir> [--lang ar] [--refunds] [--years 3]
-[--anomalies] [--segments] [--daily-series] [--seed N]` to write the files.
+[--anomalies] [--segments] [--churn] [--elasticity] [--drivers] [--daily-series] [--seed N]`
+to write the files.
 """
 
 import csv
 import json
+import math
 import random
 import sys
 from collections import defaultdict
@@ -86,6 +98,25 @@ LAPSED_UNTIL = date(2023, 9, 30)
 NEW_DAYS = 90
 ANOMALY_SEED_OFFSET = 7919
 SEGMENT_SEED_OFFSET = 104729
+# Planted churn: customers sign up, buy at their own rate and may leave on a known date
+CHURN_CUSTOMERS = 1500
+CHURN_MEAN_GAP_DAYS = 30.0
+CHURN_RATE_SPREAD = 0.5  # sd of the log purchase rate across customers
+CHURN_MEAN_LIFETIME_DAYS = 600.0
+CHURN_DECLINE_DAYS = 120
+CHURN_DECLINE_TO = 0.25
+CHURN_SEED_OFFSET = 1299709
+# Planted price elasticity: weekly price multipliers of one category and the demand they cause
+ELASTIC_CATEGORY = "Office"
+TRUE_ELASTICITY = -1.5
+ELASTIC_MULTIPLIERS = (0.75, 0.875, 1.0, 1.125, 1.25)
+ELASTIC_LINES_PER_DAY = 10.0
+ELASTIC_SEED_OFFSET = 15485863
+# Planted driver: a discount of d (fraction) lifts the units of a line by (1 + DRIVER_LIFT x d)
+DRIVER_DISCOUNTS = (0, 10, 20, 30)
+DRIVER_DISCOUNT_WEIGHTS = (4, 2, 2, 2)
+DRIVER_LIFT = 4.0
+DRIVER_SEED_OFFSET = 32452843
 
 HEADERS = {
     "en": [
@@ -168,6 +199,9 @@ def _build_rows(
     years: int = DEFAULT_YEARS,
     anomalies: bool = False,
     segments: bool = False,
+    churn: bool = False,
+    elasticity: float | None = None,
+    drivers: bool = False,
 ) -> tuple[list[Row], dict[str, Any]]:
     rnd = random.Random(seed)
     products = _products(rnd)
@@ -179,13 +213,27 @@ def _build_rows(
     day = START
     end = END if years == DEFAULT_YEARS else _end_date(years)
     groups = _Groups(random.Random(seed + SEGMENT_SEED_OFFSET), end) if segments else None
+    population = _Churners(random.Random(seed + CHURN_SEED_OFFSET), end) if churn else None
+    elastic = (
+        _Elastic(random.Random(seed + ELASTIC_SEED_OFFSET), elasticity)
+        if elasticity is not None
+        else None
+    )
+    driver_rnd = random.Random(seed + DRIVER_SEED_OFFSET) if drivers else None
     while day <= end:
         live = [p for p in products if not (p["name"] in DEAD_PRODUCTS and day > DEAD_AFTER)]
+        if elastic is not None:  # the elastic category sells only through its own demand below
+            live = [p for p in live if p["category"] != ELASTIC_CATEGORY]
         weights = [p["weight"] for p in live]
-        for _ in range(_orders_on(day, rnd, years)):
+        buyers = population.buyers(day) if population is not None else []
+        count = len(buyers) if population is not None else _orders_on(day, rnd, years)
+        first_today = len(rows)
+        for n in range(count):
             order_no += 1
             group = None
-            if groups is not None:
+            if population is not None:
+                customer = buyers[n]
+            elif groups is not None:
                 group, customer = groups.pick(day)
             elif pool and (not seen or rnd.random() < NEW_CUSTOMER_RATE):
                 customer = pool.pop()
@@ -214,7 +262,11 @@ def _build_rows(
                     "cost_cents": revenue * 6 // 10,
                 }
             )
+        if elastic is not None and len(rows) > first_today:
+            elastic.add_lines(rows, first_today, products, day)
         day += timedelta(days=1)
+    if driver_rnd is not None:
+        _plant_driver(rows, driver_rnd)
     planted: dict[str, Any] = {}
     if anomalies:
         rows, planted["anomalies"] = _plant_anomalies(
@@ -222,6 +274,17 @@ def _build_rows(
         )
     if groups is not None:
         planted["segments"] = groups.members(rows)
+    if population is not None:
+        planted["churn"] = population.facts(rows)
+    if elastic is not None:
+        planted["elasticity"] = elastic.facts()
+    if driver_rnd is not None:
+        planted["drivers"] = {
+            "driver": "discount",
+            "column": "discount_pct",
+            "levels_pct": list(DRIVER_DISCOUNTS),
+            "units_multiplier": f"1 + {DRIVER_LIFT} x discount fraction",
+        }
     if refunds:
         rows.extend(_refund_rows(rows, rnd, end))
     return rows, planted
@@ -260,6 +323,116 @@ class _Groups:
     def members(self, rows: list[Row]) -> dict[str, list[str]]:
         buyers = {r["customer_id"] for r in rows if r["revenue_cents"] > 0}
         return {name: sorted(c for c in ids if c in buyers) for name, ids in self.ids.items()}
+
+
+class _Churners:
+    """Planted churn: who buys on a day, given sign-up, own rate and (maybe) a leaving date."""
+
+    def __init__(self, rnd: random.Random, end: date) -> None:
+        self.rnd = rnd
+        span = (end - START).days
+        self.people: list[tuple[str, date, float, date | None]] = []
+        for n in range(1, CHURN_CUSTOMERS + 1):
+            signup = START + timedelta(days=rnd.randrange(max(1, span - 60)))
+            rate = math.exp(rnd.gauss(math.log(1.0 / CHURN_MEAN_GAP_DAYS), CHURN_RATE_SPREAD))
+            life = int(rnd.expovariate(1.0 / CHURN_MEAN_LIFETIME_DAYS))
+            leaves = signup + timedelta(days=life)
+            self.people.append(
+                (f"C{n:04d}", signup, min(rate, 0.5), leaves if leaves <= end else None)
+            )
+
+    def buyers(self, day: date) -> list[str]:
+        """Return the customers who place an order on `day` (rate falls before they leave)."""
+        out = []
+        season = SEASON.get(day.month, 1.0)
+        for customer, signup, rate, leaves in self.people:
+            if day < signup or (leaves is not None and day >= leaves):
+                continue
+            factor = 1.0
+            if leaves is not None and (leaves - day).days <= CHURN_DECLINE_DAYS:
+                share = (leaves - day).days / CHURN_DECLINE_DAYS
+                factor = CHURN_DECLINE_TO + (1.0 - CHURN_DECLINE_TO) * share
+            if self.rnd.random() < rate * factor * season:
+                out.append(customer)
+        return out
+
+    def facts(self, rows: list[Row]) -> dict[str, Any]:
+        """Leaving dates of the customers who left and bought at least once."""
+        buyers = {r["customer_id"] for r in rows if r["revenue_cents"] > 0}
+        left = {c: d.isoformat() for c, _, _, d in self.people if d is not None and c in buyers}
+        return {
+            "customers": len(buyers),
+            "left": dict(sorted(left.items())),
+            "decline_days": CHURN_DECLINE_DAYS,
+            "decline_to": CHURN_DECLINE_TO,
+        }
+
+
+class _Elastic:
+    """Planted price elasticity: weekly price multipliers of one category and its demand."""
+
+    def __init__(self, rnd: random.Random, elasticity: float) -> None:
+        self.rnd = rnd
+        self.elasticity = elasticity
+        self.weeks: dict[date, float] = {}
+
+    def multiplier(self, day: date) -> float:
+        week = day - timedelta(days=day.weekday())  # prices change on Mondays
+        if week not in self.weeks:
+            self.weeks[week] = self.rnd.choice(ELASTIC_MULTIPLIERS)
+        return self.weeks[week]
+
+    def _poisson(self, mean: float) -> int:
+        limit, k, p = math.exp(-mean), 0, 1.0
+        while True:
+            p *= self.rnd.random()
+            if p <= limit:
+                return k
+            k += 1
+
+    def add_lines(
+        self, rows: list[Row], first: int, products: list[dict[str, Any]], day: date
+    ) -> None:
+        """Add the category's lines (demand = base x price multiplier ^ elasticity) to today's orders."""
+        m = self.multiplier(day)
+        elastic = [p for p in products if p["category"] == ELASTIC_CATEGORY]
+        mean = ELASTIC_LINES_PER_DAY * SEASON.get(day.month, 1.0) * m**self.elasticity
+        for _ in range(self._poisson(mean)):
+            host = rows[first + self.rnd.randrange(len(rows) - first)]
+            product = self.rnd.choices(elastic, [p["weight"] for p in elastic])[0]
+            price = round(product["price_cents"] * m)
+            quantity = self.rnd.choice([1, 1, 2, 3])
+            rows.append(
+                {
+                    **host,
+                    "product": product["name"],
+                    "category": product["category"],
+                    "quantity": quantity,
+                    "price_cents": price,
+                    "revenue_cents": quantity * price,
+                    "cost_cents": quantity * product["price_cents"] * 6 // 10,
+                }
+            )
+
+    def facts(self) -> dict[str, Any]:
+        return {
+            "category": ELASTIC_CATEGORY,
+            "true_elasticity": self.elasticity,
+            "price_multipliers": list(ELASTIC_MULTIPLIERS),
+            "weeks": len(self.weeks),
+        }
+
+
+def _plant_driver(rows: list[Row], rnd: random.Random) -> None:
+    """Give every line a discount that lifts its units (unbiased stochastic rounding)."""
+    for r in rows:
+        pct = rnd.choices(DRIVER_DISCOUNTS, DRIVER_DISCOUNT_WEIGHTS)[0]
+        before = r["quantity"]
+        lifted = before * (1.0 + DRIVER_LIFT * pct / 100.0)
+        r["quantity"] = int(lifted) + (1 if rnd.random() < lifted - int(lifted) else 0)
+        r["discount_pct"] = pct
+        r["revenue_cents"] = r["quantity"] * r["price_cents"] * (100 - pct) // 100
+        r["cost_cents"] = r["cost_cents"] * r["quantity"] // before
 
 
 def _plant_anomalies(
@@ -311,7 +484,8 @@ def _plant_anomalies(
         by_day[day] = [min(by_day[day], key=lambda r: (r["revenue_cents"], r["order_id"]))]
     out = [r for day in sorted(by_day) for r in by_day[day]]
     for r in out:
-        r["discount_pct"] = rnd.choice(NORMAL_DISCOUNTS)
+        drawn = rnd.choice(NORMAL_DISCOUNTS)  # always drawn, so the stream stays the same
+        r.setdefault("discount_pct", drawn)
         r["list_price_cents"] = r["price_cents"]
     special = set(SPIKES) | set(DROPS)
     quiet = [r for r in out if r["order_date"] not in special]
@@ -509,12 +683,27 @@ def generate(
     years: int = DEFAULT_YEARS,
     anomalies: bool = False,
     segments: bool = False,
+    churn: bool = False,
+    elasticity: bool = False,
+    drivers: bool = False,
+    true_elasticity: float = TRUE_ELASTICITY,
 ) -> tuple[Path, Path, dict[str, Any]]:
     """Write the CSV and its facts JSON into `directory`; return (csv, json, facts)."""
     if years < DEFAULT_YEARS:
         raise ValueError("years must be at least 2")
+    if churn and segments:
+        raise ValueError("churn and segments both decide who buys; use one of them")
     directory.mkdir(parents=True, exist_ok=True)
-    rows, planted = _build_rows(seed, refunds, years, anomalies, segments)
+    rows, planted = _build_rows(
+        seed,
+        refunds,
+        years,
+        anomalies,
+        segments,
+        churn,
+        true_elasticity if elasticity else None,
+        drivers,
+    )
     facts = compute_facts(rows, seed, lang, refunds, years)
     if facts["customer_count"] < 500 or facts["dead_stock"] != sorted(DEAD_PRODUCTS):
         raise AssertionError("generator no longer satisfies its planted facts")
@@ -528,11 +717,15 @@ def generate(
     suffix = "" if years == DEFAULT_YEARS else f"_{years}y"
     suffix += "_anomalies" if anomalies else ""
     suffix += "_segments" if segments else ""
+    suffix += "_churn" if churn else ""
+    suffix += "_elasticity" if elasticity else ""
+    suffix += "_drivers" if drivers else ""
+    discount = anomalies or drivers
     stem = f"ground_truth_{lang}{'_refunds' if refunds else ''}{suffix}"
     csv_path, json_path = directory / f"{stem}.csv", directory / f"{stem}.json"
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(HEADERS[lang] + ([DISCOUNT_HEADER[lang]] if anomalies else []))
+        writer.writerow(HEADERS[lang] + ([DISCOUNT_HEADER[lang]] if discount else []))
         for r in rows:
             writer.writerow(
                 [
@@ -548,7 +741,7 @@ def generate(
                     _money(r["revenue_cents"]),
                     _money(r["cost_cents"]),
                 ]
-                + ([r.get("discount_pct", 0)] if anomalies else [])
+                + ([r.get("discount_pct", 0)] if discount else [])
             )
     _write_json(json_path, facts, ensure_ascii=False)
     return csv_path, json_path, facts
@@ -611,5 +804,8 @@ if __name__ == "__main__":
             years=int(_option("--years", str(DEFAULT_YEARS))),
             anomalies="--anomalies" in sys.argv,
             segments="--segments" in sys.argv,
+            churn="--churn" in sys.argv,
+            elasticity="--elasticity" in sys.argv,
+            drivers="--drivers" in sys.argv,
         )
     print(f"wrote {written[0]}\nwrote {written[1]}")

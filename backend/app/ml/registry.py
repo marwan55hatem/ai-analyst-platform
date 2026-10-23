@@ -2,7 +2,9 @@
 
 from app.ml.base import AnalysisModule
 from app.ml.modules.anomalies import AnomalyModule
+from app.ml.modules.churn import ChurnModule
 from app.ml.modules.cohort import CohortRetentionModule
+from app.ml.modules.drivers import DriverModule
 from app.ml.modules.forecast import ForecastModule
 from app.ml.modules.kpis import KpiModule
 from app.ml.modules.pareto import ParetoModule
@@ -17,6 +19,8 @@ _MODULES: list[type[AnalysisModule]] = [
     ForecastModule,
     AnomalyModule,
     SegmentationModule,
+    ChurnModule,
+    DriverModule,
 ]
 
 

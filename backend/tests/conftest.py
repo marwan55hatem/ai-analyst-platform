@@ -103,7 +103,7 @@ def db(database: URL) -> Iterator[Session]:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments RESTART IDENTITY CASCADE"
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments, churn_scores RESTART IDENTITY CASCADE"
             )
         )
     with get_sessionmaker()() as session:

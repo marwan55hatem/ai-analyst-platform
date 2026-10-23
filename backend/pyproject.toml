@@ -29,6 +29,7 @@ dependencies = [
     "mlflow-skinny==2.22.0",
     "psutil>=7.2.2",
     "scikit-learn>=1.9.1",
+    "shap>=0.54.1",
 ]
 
 [dependency-groups]
@@ -75,7 +76,7 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*", "sklearn.*", "joblib.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*", "sklearn.*", "joblib.*", "shap.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
