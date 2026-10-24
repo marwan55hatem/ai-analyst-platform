@@ -44,6 +44,12 @@ os.environ.update(
         "STORAGE_DIR": _STORAGE,
         # forecasts log to a throwaway local store, never to a server
         "MLFLOW_TRACKING_URI": Path(_MLFLOW).as_uri(),
+        # Never reach a real model provider: the developer's .env may hold a real key.
+        "APP_ENV": "test",
+        "LLM_PROVIDER": "fake",
+        "LLM_API_KEY": "",
+        "LLM_BASE_URL": "http://llm.invalid",
+        "SANDBOX_URL": "http://sandbox.invalid:1",
     }
 )
 
@@ -103,7 +109,7 @@ def db(database: URL) -> Iterator[Session]:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments, churn_scores RESTART IDENTITY CASCADE"
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments, churn_scores, business_profiles, conversations, messages, agent_usage_daily RESTART IDENTITY CASCADE"
             )
         )
     with get_sessionmaker()() as session:

@@ -42,6 +42,33 @@ x-backend: &backend
     AUTO_ANALYZE: ${AUTO_ANALYZE:-true}
     QUERY_TIMEOUT_S: ${QUERY_TIMEOUT_S:-30}
     INGEST_STUCK_MINUTES: ${INGEST_STUCK_MINUTES:-30}
+    # Step 8 agent. Shell variables win over .env, so `LLM_PROVIDER=fake make up` uses the fake model.
+    APP_ENV: ${APP_ENV:-development}
+    LLM_PROVIDER: ${LLM_PROVIDER:-none}
+    LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_MODEL: ${LLM_MODEL:-deepseek-flash}
+    LLM_MODEL_STRONG: ${LLM_MODEL_STRONG:-deepseek-v4-pro}
+    LLM_THINKING: ${LLM_THINKING:-enabled}
+    LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-120}
+    LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-3}
+    LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-4096}
+    LLM_PRICE_INPUT_PER_M: ${LLM_PRICE_INPUT_PER_M:-0.44}
+    LLM_PRICE_CACHED_INPUT_PER_M: ${LLM_PRICE_CACHED_INPUT_PER_M:-0.014}
+    LLM_PRICE_OUTPUT_PER_M: ${LLM_PRICE_OUTPUT_PER_M:-1.32}
+    LLM_PRICE_STRONG_INPUT_PER_M: ${LLM_PRICE_STRONG_INPUT_PER_M:-1.32}
+    LLM_PRICE_STRONG_CACHED_INPUT_PER_M: ${LLM_PRICE_STRONG_CACHED_INPUT_PER_M:-0.044}
+    LLM_PRICE_STRONG_OUTPUT_PER_M: ${LLM_PRICE_STRONG_OUTPUT_PER_M:-3.96}
+    AGENT_DAILY_TOKEN_BUDGET: ${AGENT_DAILY_TOKEN_BUDGET:-200000}
+    AGENT_MAX_ITERATIONS: ${AGENT_MAX_ITERATIONS:-8}
+    AGENT_HISTORY_MESSAGES: ${AGENT_HISTORY_MESSAGES:-12}
+    AGENT_SUMMARY_AFTER: ${AGENT_SUMMARY_AFTER:-16}
+    AGENT_TOOL_OUTPUT_CHARS: ${AGENT_TOOL_OUTPUT_CHARS:-12000}
+    CHAT_RATE_LIMIT_PER_MINUTE: ${CHAT_RATE_LIMIT_PER_MINUTE:-20}
+    CHAT_MAX_CONCURRENT_STREAMS: ${CHAT_MAX_CONCURRENT_STREAMS:-2}
+    SANDBOX_URL: unix:///ipc/sandbox.sock
+    SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-15}
+    SANDBOX_MAX_UPLOAD_MB: ${SANDBOX_MAX_UPLOAD_MB:-20}
   # The API saves uploads and the worker converts them: both must see the same files.
   volumes:
     - storage:/app/storage
@@ -84,6 +111,17 @@ services:
     <<: *backend
     ports:
       - "8000:8000"
+    # storage for datasets plus the sandbox socket (the ipc volume holds nothing else)
+    volumes:
+      - storage:/app/storage
+      - sandbox-ipc:/ipc
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sandbox:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 10s
@@ -101,6 +139,71 @@ services:
     <<: *backend
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
     mem_limit: 256m
+
+  # run_python sandbox: no network at all, no storage volume, read-only root, non-root user.
+  # The api reaches it only through the unix socket on the sandbox-ipc volume.
+  sandbox:
+    build:
+      context: ./sandbox
+    image: ai-analyst-sandbox:dev
+    network_mode: none
+    read_only: true
+    user: "10001:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - sandbox-ipc:/ipc
+    environment:
+      SANDBOX_LISTEN: unix:/ipc/sandbox.sock
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-15}
+      SANDBOX_CHILD_MEMORY_MB: ${SANDBOX_CHILD_MEMORY_MB:-400}
+      SANDBOX_MAX_REQUEST_MB: ${SANDBOX_MAX_REQUEST_MB:-40}
+    healthcheck:
+      test: ["CMD", "python", "-I", "-m", "sandbox_server.healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+
+  # CI and walkthrough proof that the socket works with no network: runs only with --profile ci.
+  sandbox-check:
+    image: python:3.12-slim
+    profiles: ["ci"]
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    volumes:
+      - sandbox-ipc:/ipc
+      - ./sandbox/smoke_check.py:/check/smoke_check.py:ro
+    command: ["python", "-I", "/check/smoke_check.py"]
+    depends_on:
+      sandbox:
+        condition: service_healthy
+
+  # The container layer alone: the sandbox image and runtime flags, but raw Python instead of the
+  # sandbox server, so no static check, audit hook or rlimit is involved. Runs only with --profile ci.
+  sandbox-container-check:
+    image: ai-analyst-sandbox:dev
+    profiles: ["ci"]
+    network_mode: none
+    read_only: true
+    user: "10001:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ./sandbox/container_check.py:/check/container_check.py:ro
+    command: ["python", "-I", "/check/container_check.py"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.22.0
@@ -121,3 +224,4 @@ volumes:
   pgdata:
   mlflow-data:
   storage:
+  sandbox-ipc:

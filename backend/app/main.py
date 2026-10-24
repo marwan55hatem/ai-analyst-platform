@@ -4,11 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.v1 import analysis, auth, datasets, forecast, health, team, whatif
+from app.api.v1 import analysis, auth, chat, datasets, forecast, health, team, whatif
 from app.core.config import get_settings, warn_derived_pseudonym_secret
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import REQUEST_ID_HEADER, RequestIdMiddleware
+from app.llm import ensure_provider_allowed
 
 
 def create_app() -> FastAPI:
@@ -17,6 +18,7 @@ def create_app() -> FastAPI:
     settings.ensure_production_safe()
     configure_logging(settings.log_level)
     warn_derived_pseudonym_secret(settings)
+    ensure_provider_allowed(settings)
     application = FastAPI(title=settings.app_name, version=__version__)
     register_error_handlers(application)
     application.add_middleware(RequestIdMiddleware)
@@ -40,6 +42,7 @@ def create_app() -> FastAPI:
         analysis.router,
         forecast.router,
         whatif.router,
+        chat.router,
     ):
         application.include_router(router, prefix="/api/v1")
     return application

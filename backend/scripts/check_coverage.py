@@ -20,6 +20,8 @@ GUARDED_PACKAGES = (
     "app/ml/churn",
     "app/ml/drivers",
     "app/ml/whatif",
+    "app/agent",
+    "app/llm",
 )
 # Security-critical files held to a stricter bar than the package minimum.
 GUARDED_FILES = {
