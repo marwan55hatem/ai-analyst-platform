@@ -166,3 +166,33 @@ def test_ordinary_queries_keep_static_names(sql: str) -> None:
 def test_oversized_column_names_are_caught() -> None:
     assert has_oversized_name(["ok", "x" * 129])
     assert not has_oversized_name(["ok", "x" * 128])
+
+
+STATIC_NAME_QUERIES = [
+    "SELECT * FROM data UNPIVOT (v FOR k IN (revenue, revenue))",
+    "SELECT COLUMNS('r.*') FROM data",
+    "SELECT COLUMNS(c -> c LIKE 'r%') FROM data",
+    "SELECT UNNEST({'a': region, 'b': revenue}) FROM data",
+    "SELECT UNNEST(STRUCT_PACK(region := region)) FROM data",
+    "SELECT map_keys(MAP {region: 1}) FROM data",
+    "SELECT * RENAME (revenue AS r2) FROM data",
+    "SELECT * FROM data d1 JOIN data d2 USING (region)",
+    "SELECT * FROM data POSITIONAL JOIN data d2",
+    "SELECT * FROM (SELECT {'x': region} AS s FROM data)",
+]
+
+
+@pytest.mark.parametrize("sql", STATIC_NAME_QUERIES)
+def test_other_constructs_take_column_names_from_schema_and_query_text_only(
+    sql: str, con: duckdb.DuckDBPyConnection
+) -> None:
+    """PIVOT is the only DuckDB construct whose output names are row values (probed in Step 8).
+
+    UNPIVOT turns column names into cells (never cells into names); COLUMNS(...) selects by schema;
+    struct and map keys inside a value are text of the query, not column names.
+    """
+    clean = validate_sql(sql)
+    assert not makes_dynamic_column_names(clean)
+    names = {d[0] for d in con.execute(clean).description}
+    cells = {"N", "S", "a@b.c", "x@y.z"}
+    assert not names & cells, sql
