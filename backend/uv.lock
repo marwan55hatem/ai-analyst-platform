@@ -31,6 +31,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "lightgbm" },
     { name = "mlflow-skinny" },
     { name = "openpyxl" },
@@ -54,7 +55,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -74,6 +74,7 @@ requires-dist = [
     { name = "duckdb" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "lightgbm", specifier = ">=4.7.0" },
     { name = "mlflow-skinny", specifier = "==2.22.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
@@ -97,7 +98,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pre-commit" },
     { name = "pytest" },

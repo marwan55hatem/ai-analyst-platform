@@ -42,3 +42,10 @@ jobs:
       # runner: 4 CPUs, ~16 GB; a worker peaks at ~700 MB, so 4 workers stay far below
       # 70% of memory and CPU is the limit
       - run: make test TEST_WORKERS=4
+      # The real sandbox image over its unix socket, with no network (the container layers the
+      # unit tests cannot see): build it, run the smoke check, remove everything.
+      - run: docker compose build sandbox
+      - run: docker compose --profile ci run --rm sandbox-check
+      - run: docker compose --profile ci run --rm sandbox-container-check
+      - if: always()
+        run: docker compose --profile ci down -v

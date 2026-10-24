@@ -217,7 +217,11 @@ def test_factory_returns_none_without_a_provider(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(get_settings(), "llm_provider", "none")
     assert get_llm_client() is None
     monkeypatch.setattr(get_settings(), "llm_provider", "fake")
-    assert isinstance(get_llm_client(), FakeLLMClient)
+    from app.llm import ScriptedAnalyst
+
+    scripted = get_llm_client()
+    assert isinstance(scripted, ScriptedAnalyst)
+    assert scripted.complete_json("system", "{}") == {"columns": {}}  # roles stay rule-based
     monkeypatch.setattr(get_settings(), "llm_provider", "someone")
     with pytest.raises(LLMError):
         get_llm_client()

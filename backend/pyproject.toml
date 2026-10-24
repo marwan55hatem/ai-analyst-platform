@@ -30,13 +30,13 @@ dependencies = [
     "psutil>=7.2.2",
     "scikit-learn>=1.9.1",
     "shap>=0.54.1",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-cov",
-    "httpx",
     "ruff",
     "mypy",
     "pre-commit",
@@ -88,6 +88,7 @@ testpaths = ["tests"]
 markers = [
     "slow: takes 10s or more locally (large files or several full analysis runs); still part of make test and CI",
     "serial: must not share the machine with other tests (memory or timing assertions, shared Redis key); runs in a separate pass after the parallel one when TEST_WORKERS > 1",
+    "live_llm: calls the real model provider; skipped unless RUN_LIVE_LLM=1 and never run in CI",
 ]
 filterwarnings = [
     "ignore::SyntaxWarning",

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
+from app.models.agent import BusinessProfile, Conversation, Message
 from app.models.analysis import (
     AnalysisRun,
     AnalysisStatus,
@@ -366,3 +367,62 @@ class ModelRunRepository(TenantRepository[ModelRun]):
             ModelRun.status.in_(["pending", "running"]),
         )
         return self.session.scalars(stmt).first()
+
+
+class BusinessProfileRepository(TenantRepository[BusinessProfile]):
+    """The company profile of one tenant (at most one row)."""
+
+    model = BusinessProfile
+
+    def current(self) -> BusinessProfile | None:
+        """Return the tenant's profile, or None when it was never saved."""
+        return self.session.scalars(self._select()).first()
+
+
+class ConversationRepository(TenantRepository[Conversation]):
+    """Chat conversations of one tenant."""
+
+    model = Conversation
+
+    def list_recent(
+        self, *, user_id: uuid.UUID | None = None, limit: int = 50, offset: int = 0
+    ) -> list[Conversation]:
+        """Return conversations, most recently updated first (optionally one user's)."""
+        stmt = self._select()
+        if user_id is not None:
+            stmt = stmt.where(Conversation.user_id == user_id)
+        stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id)
+        return list(self.session.scalars(stmt.limit(limit).offset(offset)))
+
+
+class MessageRepository(TenantRepository[Message]):
+    """Messages of one tenant's conversations."""
+
+    model = Message
+
+    def for_conversation(
+        self, conversation_id: uuid.UUID, *, after_seq: int = -1, limit: int | None = None
+    ) -> list[Message]:
+        """Return a conversation's messages in order (optionally only those after a seq)."""
+        stmt = (
+            self._select()
+            .where(Message.conversation_id == conversation_id, Message.seq > after_seq)
+            .order_by(Message.seq)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(self.session.scalars(stmt))
+
+    def next_seq(self, conversation_id: uuid.UUID) -> int:
+        """Return the next sequence number in a conversation."""
+        stmt = select(func.coalesce(func.max(Message.seq), -1)).where(
+            Message.tenant_id == self.tenant_id, Message.conversation_id == conversation_id
+        )
+        return int(self.session.scalar(stmt) or 0) + 1
+
+    def count(self, conversation_id: uuid.UUID) -> int:
+        """Return how many messages a conversation has."""
+        stmt = select(func.count(Message.id)).where(
+            Message.tenant_id == self.tenant_id, Message.conversation_id == conversation_id
+        )
+        return int(self.session.scalar(stmt) or 0)

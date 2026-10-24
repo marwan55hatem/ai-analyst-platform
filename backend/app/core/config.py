@@ -1,6 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
+from typing import Literal
 
 import structlog
 from pydantic import Field
@@ -19,9 +20,32 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 30
     refresh_token_days: int = 14
+    app_env: Literal["development", "test", "production"] = "development"
     llm_provider: str = "none"
-    llm_api_key: str = ""
-    llm_model: str = ""
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_api_key: str = Field(default="", repr=False)
+    llm_model: str = "deepseek-flash"
+    llm_model_strong: str = "deepseek-v4-pro"
+    llm_thinking: Literal["enabled", "disabled"] = "enabled"
+    llm_timeout_s: float = 120.0
+    llm_max_retries: int = Field(default=3, ge=0, le=6)
+    llm_max_output_tokens: int = Field(default=4096, ge=256, le=65_536)
+    llm_price_input_per_m: float = 0.44
+    llm_price_cached_input_per_m: float = 0.014
+    llm_price_output_per_m: float = 1.32
+    llm_price_strong_input_per_m: float = 1.32
+    llm_price_strong_cached_input_per_m: float = 0.044
+    llm_price_strong_output_per_m: float = 3.96
+    agent_daily_token_budget: int = Field(default=200_000, ge=0)
+    agent_max_iterations: int = Field(default=8, ge=1, le=20)
+    agent_history_messages: int = Field(default=12, ge=2, le=100)
+    agent_summary_after: int = Field(default=16, ge=4, le=500)
+    agent_tool_output_chars: int = Field(default=12_000, ge=1_000, le=100_000)
+    chat_rate_limit_per_minute: int = Field(default=20, ge=1)
+    chat_max_concurrent_streams: int = Field(default=2, ge=1, le=20)
+    sandbox_url: str = "unix:///ipc/sandbox.sock"
+    sandbox_timeout_s: float = Field(default=15.0, gt=0, le=120)
+    sandbox_max_upload_mb: float = Field(default=20.0, gt=0, le=200)
     storage_dir: str = "./storage"
     max_upload_mb: int = 50
     max_rows: int = 2_000_000

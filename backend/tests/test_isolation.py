@@ -52,7 +52,13 @@ FORECAST_ROUTES = {
     ("GET", "/api/v1/analysis-runs/{run_id}/forecast"),
     ("GET", "/api/v1/forecast-runs/{forecast_run_id}"),
 }
-RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES | FORECAST_ROUTES
+CHAT_ROUTES = {
+    ("GET", "/api/v1/conversations/{conversation_id}"),
+    ("PATCH", "/api/v1/conversations/{conversation_id}"),
+    ("DELETE", "/api/v1/conversations/{conversation_id}"),
+    ("GET", "/api/v1/conversations/{conversation_id}/messages"),
+}
+RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES | FORECAST_ROUTES | CHAT_ROUTES
 # Routes that work without a token; every other route must answer 401 anonymously.
 PUBLIC_ROUTES = {
     ("GET", "/api/v1/health"),
@@ -77,6 +83,8 @@ def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -
         return client.request(method, path, headers=headers, json=body).status_code
     if path.endswith("/role"):
         return client.request(method, path, headers=headers, json={"role": "member"}).status_code
+    if method == "PATCH" and "/conversations/" in path:
+        return client.request(method, path, headers=headers, json={"title": "x"}).status_code
     if path.endswith("/versions"):
         files = {"file": ("x.csv", b"a,b\n1,2\n")}
         return client.request(method, path, headers=headers, files=files).status_code
@@ -180,6 +188,48 @@ def test_tenant_b_gets_404_for_every_tenant_a_forecast_route(
     # Tenant B cannot see tenant A's forecast, and tenant A's result is untouched.
     own = client.get(f"{API}/forecast-runs/{queued.json()['id']}", headers=owner_a.headers).json()
     assert own["status"] == "completed" and own["result"]["insights"]
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_chat_route(client: TestClient) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    made = upload_ready(client, owner_a, sample("retail_clean.csv"), "a.csv")
+    created = client.post(
+        f"{API}/conversations", headers=owner_a.headers, json={"dataset_id": made["id"]}
+    )
+    assert created.status_code == 201, created.text
+    conversation_id = created.json()["id"]
+
+    for method, template in sorted(CHAT_ROUTES):
+        path = template.replace("{conversation_id}", conversation_id)
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+    # Streaming into another tenant's conversation, or starting one on its dataset, is a 404 too.
+    for attacker in (owner_b, admin_b):
+        stream = client.post(
+            f"{API}/chat/stream",
+            headers=attacker.headers,
+            json={"conversation_id": conversation_id, "message": "net revenue?"},
+        )
+        assert stream.status_code == 404, stream.text
+        foreign = client.post(
+            f"{API}/conversations", headers=attacker.headers, json={"dataset_id": made["id"]}
+        )
+        assert foreign.status_code == 404
+    # The company profile is per tenant.
+    saved = client.put(
+        f"{API}/company/profile", headers=owner_a.headers, json={"industry": "Retail A"}
+    )
+    assert saved.status_code == 200, saved.text
+    assert client.get(f"{API}/company/profile", headers=owner_b.headers).json()["industry"] == ""
+    # Tenant A still has its conversation, untouched, and tenant B lists nothing.
+    own = client.get(f"{API}/conversations/{conversation_id}", headers=owner_a.headers)
+    assert own.status_code == 200 and own.json()["title"] == "New conversation"
+    assert client.get(f"{API}/conversations", headers=owner_b.headers).json() == []
+    for method, template in sorted(CHAT_ROUTES, key=lambda r: r[0] == "DELETE"):
+        path = template.replace("{conversation_id}", conversation_id)
+        assert _call(client, method, path, owner_a.headers) in {200, 204}, (method, path)
 
 
 def test_query_layer_refuses_other_tenants_version(client: TestClient, db: Session) -> None:

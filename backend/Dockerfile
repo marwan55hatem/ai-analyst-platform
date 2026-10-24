@@ -20,7 +20,8 @@ COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY app ./app
-RUN mkdir -p /app/storage && chown -R app:app /app/storage
+# /ipc holds the sandbox's unix socket (the sandbox user shares gid 1000)
+RUN mkdir -p /app/storage /ipc && chown -R app:app /app/storage /ipc && chmod 0770 /ipc
 USER app
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

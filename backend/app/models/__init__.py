@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models (all tenant data carries tenant_id)."""
 
+from app.models.agent import AgentUsageDaily, BusinessProfile, Conversation, Message
 from app.models.analysis import (
     AnalysisRun,
     AnalysisStatus,
@@ -15,6 +16,10 @@ from app.models.tenant import Tenant
 from app.models.user import Role, User
 
 __all__ = [
+    "AgentUsageDaily",
+    "BusinessProfile",
+    "Conversation",
+    "Message",
     "AnalysisRun",
     "AnalysisStatus",
     "ChurnScore",
