@@ -1,7 +1,7 @@
 COV_MIN ?= 85
 TEST_WORKERS ?= 1
 
-.PHONY: up down logs test lint migrate seed db-up check-storage
+.PHONY: up down logs test lint migrate seed db-up check-storage frontend-install frontend-lint frontend-typecheck frontend-test frontend-build frontend-e2e api-client
 
 up:
 	docker compose up -d --build --wait
@@ -34,3 +34,28 @@ seed:
 check-storage:
 	docker compose exec -T api sh -c "echo shared-ok > /app/storage/.probe"
 	docker compose exec -T worker sh -c "cat /app/storage/.probe && rm /app/storage/.probe"
+
+# Frontend (Next.js in ./frontend). Day-to-day development: npm --prefix frontend run dev
+frontend-install:
+	npm --prefix frontend ci
+
+frontend-lint:
+	npm --prefix frontend run lint
+
+frontend-typecheck:
+	npm --prefix frontend run typecheck
+
+frontend-test:
+	npm --prefix frontend run test
+
+frontend-build:
+	npm --prefix frontend run build
+
+# Playwright end-to-end tests against the running stack (make up, make migrate first)
+frontend-e2e:
+	npm --prefix frontend run e2e
+
+# Regenerate the typed API client from the FastAPI schema (no server needed)
+api-client:
+	uv run --directory backend python scripts/dump_openapi.py ../frontend/src/lib/api/openapi.json
+	npm --prefix frontend run api:generate

@@ -1,0 +1,16 @@
+node_modules
+.next
+coverage
+playwright-report
+test-results
+.lighthouse
+e2e
+scripts
+**/*.test.ts
+**/*.test.tsx
+src/test
+Dockerfile
+.dockerignore
+.env*
+npm-debug.log*
+*.tsbuildinfo

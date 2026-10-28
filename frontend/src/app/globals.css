@@ -1,0 +1,190 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * "Assay" tokens (docs/design.md). Every text colour is at least 4.5:1 on --background,
+ * --card and --muted in its theme; the signal fill is decorative only (needle, ticks).
+ */
+:root {
+  --background: #f5f7f6;
+  --foreground: #16201f;
+  --card: #ffffff;
+  --card-foreground: #16201f;
+  --popover: #ffffff;
+  --popover-foreground: #16201f;
+  --primary: #0b5c63;
+  --primary-foreground: #ffffff;
+  --secondary: #ebf0ee;
+  --secondary-foreground: #16201f;
+  --muted: #ebf0ee;
+  --muted-foreground: #4b5a58;
+  --accent: #e3eae8;
+  --accent-foreground: #16201f;
+  --destructive: #b42318;
+  --border: #d3dcda;
+  --input: #7c8c89;
+  --ring: #8a5a00;
+  --signal: #8a5a00;
+  --signal-fill: #f2c14e;
+  --good: #1b6e45;
+  --good-soft: #e2f1e8;
+  --warn: #8f4e00;
+  --warn-soft: #fbeedb;
+  --bad: #b42318;
+  --bad-soft: #fbe5e2;
+  --info-soft: #e0eef0;
+  --dial-track: #dde5e3;
+  --sidebar: #ebf0ee;
+  --sidebar-foreground: #16201f;
+  --sidebar-border: #d3dcda;
+  --shadow-pop: 0 8px 24px -8px rgb(22 32 31 / 0.18), 0 1px 2px rgb(22 32 31 / 0.08);
+}
+
+.dark {
+  --background: #0d1517;
+  --foreground: #e4ecea;
+  --card: #152124;
+  --card-foreground: #e4ecea;
+  --popover: #1c2b2f;
+  --popover-foreground: #e4ecea;
+  --primary: #5cc2be;
+  --primary-foreground: #0d1517;
+  --secondary: #1c2b2f;
+  --secondary-foreground: #e4ecea;
+  --muted: #1c2b2f;
+  --muted-foreground: #9db0ad;
+  --accent: #23353a;
+  --accent-foreground: #e4ecea;
+  --destructive: #ff8a7a;
+  --border: #2c3d41;
+  --input: #647a7e;
+  --ring: #e8b547;
+  --signal: #e8b547;
+  --signal-fill: #e8b547;
+  --good: #5bc98e;
+  --good-soft: #15302a;
+  --warn: #f0a040;
+  --warn-soft: #33260f;
+  --bad: #ff8a7a;
+  --bad-soft: #3a1a17;
+  --info-soft: #14312f;
+  --dial-track: #23353a;
+  --sidebar: #111b1e;
+  --sidebar-foreground: #e4ecea;
+  --sidebar-border: #2c3d41;
+  --shadow-pop: 0 12px 32px -12px rgb(0 0 0 / 0.6), 0 1px 2px rgb(0 0 0 / 0.4);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-signal: var(--signal);
+  --color-signal-fill: var(--signal-fill);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-info-soft: var(--info-soft);
+  --color-dial-track: var(--dial-track);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+
+  --font-sans: var(--font-plex), var(--font-plex-arabic), ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale: ratio 1.2 from a 15px body. */
+  --text-xs: 0.78125rem;
+  --text-xs--line-height: 1.1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.3rem;
+  --text-base: 0.9375rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.65rem;
+  --text-xl: 1.35rem;
+  --text-xl--line-height: 1.85rem;
+  --text-2xl: 1.625rem;
+  --text-2xl--line-height: 2.1rem;
+  --text-3xl: 1.9375rem;
+  --text-3xl--line-height: 2.4rem;
+  --text-4xl: 2.3125rem;
+  --text-4xl--line-height: 2.75rem;
+
+  /* Controls 4px, panels 8px. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+
+  --shadow-lg: var(--shadow-pop);
+  --shadow-md: var(--shadow-pop);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: var(--text-base);
+    line-height: 1.55;
+    font-feature-settings: "kern";
+  }
+  /* Arabic script needs more room above and below the line. */
+  html[lang="ar"] body {
+    font-family: var(--font-plex-arabic), var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.65;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--signal-fill) 45%, transparent);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  html[lang="ar"] h1,
+  html[lang="ar"] h2,
+  html[lang="ar"] h3 {
+    letter-spacing: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

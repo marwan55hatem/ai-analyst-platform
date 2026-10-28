@@ -1,0 +1,402 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "tryAgain": "Try again",
+    "cancel": "Cancel",
+    "close": "Close",
+    "backToDatasets": "Back to datasets",
+    "emptyCell": "empty",
+    "version": "Version {version}",
+    "rows": "{count, plural, one {# row} other {# rows}}",
+    "columns": "{count, plural, one {# column} other {# columns}}",
+    "never": "Never",
+    "sampleSize": "Based on {count, plural, one {# row} other {# rows}}",
+    "confidence": {
+      "high": "High confidence",
+      "medium": "Medium confidence",
+      "low": "Low confidence"
+    },
+    "fromServerEnglish": "Shown as reported by the analysis engine."
+  },
+  "nav": {
+    "main": "Main",
+    "skip": "Skip to content",
+    "openMenu": "Open menu",
+    "datasets": "Datasets",
+    "dashboard": "Dashboard",
+    "insights": "Insights",
+    "chat": "Ask the analyst",
+    "reports": "Reports",
+    "settings": "Settings"
+  },
+  "header": {
+    "language": "Language",
+    "switchTo": "العربية",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "Match system",
+    "account": "Account menu",
+    "signedInAs": "Signed in as {name}",
+    "signOut": "Sign out",
+    "company": "Company"
+  },
+  "auth": {
+    "tagline": "Upload your sales data, see how healthy it is, and get answers backed by evidence.",
+    "loginTitle": "Sign in",
+    "loginSubtitle": "Welcome back. Sign in to see your datasets.",
+    "email": "Work email",
+    "password": "Password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "loginSubmit": "Sign in",
+    "loginBusy": "Signing in…",
+    "noAccount": "New here?",
+    "toRegister": "Create an account",
+    "registerTitle": "Create your account",
+    "registerSubtitle": "One account per company. You can invite your team later.",
+    "company": "Company name",
+    "fullName": "Your name",
+    "passwordHint": "At least 10 characters. Avoid common passwords and don't include your name or email.",
+    "registerSubmit": "Create account",
+    "registerBusy": "Creating your account…",
+    "haveAccount": "Already have an account?",
+    "toLogin": "Sign in",
+    "expired": "Your session ended. Sign in again to continue.",
+    "badCredentials": "That email and password don't match. Check them and try again.",
+    "passwordProblems": "Choose a stronger password:",
+    "problems": {
+      "short": "Use at least 10 characters.",
+      "long": "Use 128 characters or fewer.",
+      "common": "This password is too common. Choose one that's harder to guess.",
+      "repetitive": "Use a mix of different characters.",
+      "email": "Don't include the first part of your email.",
+      "name": "Don't include your name.",
+      "other": "This password doesn't meet the rules."
+    },
+    "validation": {
+      "required": "Enter your {field}.",
+      "email": "Enter an email address like name@company.com.",
+      "passwordShort": "Use at least 10 characters.",
+      "passwordLong": "Use 128 characters or fewer.",
+      "passwordHasEmail": "Don't include the first part of your email in the password.",
+      "passwordHasName": "Don't include your name in the password.",
+      "tooLong": "Use 200 characters or fewer."
+    },
+    "fieldNames": {
+      "email": "email",
+      "password": "password",
+      "company": "company name",
+      "fullName": "name"
+    },
+    "stepsTitle": "How it works",
+    "steps": {
+      "upload": {
+        "title": "Upload your sales data",
+        "body": "A CSV or Excel export of orders or sales. Your original file is always kept."
+      },
+      "health": {
+        "title": "See how healthy it is",
+        "body": "A 0-100 quality score, with what lowers it in plain language."
+      },
+      "analyse": {
+        "title": "Fix it, then analyse",
+        "body": "Apply safe fixes as a new version, then run the analysis and see each step."
+      }
+    }
+  },
+  "errors": {
+    "title": "Something went wrong",
+    "generic": "Something went wrong on our side. Try again in a moment.",
+    "network_error": "Can't reach the server. Check your connection and try again.",
+    "unauthorized": "Your session ended. Sign in again to continue.",
+    "forbidden": "Your role can't do this. Ask a company owner or admin.",
+    "not_found": "We couldn't find that. It may have been deleted.",
+    "rate_limited": "Too many attempts. Wait a moment and try again.",
+    "rateLimitedSeconds": "Too many attempts. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+    "email_taken": "An account with this email already exists. Sign in instead.",
+    "weak_password": "Choose a stronger password.",
+    "validation_error": "Some details aren't valid. Check the highlighted fields.",
+    "unsupported_media_type": "This file type isn't supported. Upload a CSV, TSV or Excel (.xlsx) file.",
+    "content_mismatch": "The file's contents don't match its extension. Save it again as CSV or .xlsx and upload it.",
+    "empty_file": "This file is empty. Choose a file that has a header row and data.",
+    "payload_too_large": "This file is over the {limit} MB limit. Split it or remove unused columns, then upload it again.",
+    "corrupt_file": "We couldn't open this Excel file. Open it in Excel, save it again, and upload it.",
+    "unknown_sheet": "That sheet isn't in the workbook. Choose one of its sheets.",
+    "dataset_not_ready": "This dataset is still being prepared. Wait until it's ready.",
+    "dataset_failed": "This dataset couldn't be read. Upload the file again.",
+    "profile_running": "The data health check is already running.",
+    "profile_failed": "The data health check failed. Run it again.",
+    "profile_not_ready": "The data health check hasn't finished yet.",
+    "analysis_running": "An analysis is already running for this version. Wait for it to finish.",
+    "no_fixes_selected": "Select at least one fix to apply.",
+    "nothing_to_apply": "The selected fixes keep your data as it is. Pick a different option or another fix.",
+    "invalid_strategy": "One of the selected options isn't allowed for that fix. Choose another option.",
+    "unknown_fix": "The cleaning plan has changed. Reload the page and try again.",
+    "internal_error": "Something went wrong on our side. Try again in a moment.",
+    "boundaryBody": "This part of the page didn't load. Try again, or go back to your datasets.",
+    "notFoundTitle": "Page not found",
+    "notFoundBody": "The address may be mistyped, or the page has moved.",
+    "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}."
+  },
+  "status": {
+    "processing": "Processing",
+    "checking": "Checking health",
+    "ready": "Ready",
+    "failed": "Failed"
+  },
+  "datasets": {
+    "title": "Datasets",
+    "intro": "Each upload becomes a dataset. Cleaning it creates a new version and keeps the original.",
+    "upload": "Upload data",
+    "emptyTitle": "No datasets yet",
+    "emptyBody": "Upload a CSV or Excel file of your sales or orders. We'll check its health and suggest fixes before any analysis.",
+    "colName": "Name",
+    "colStatus": "Status",
+    "colRows": "Rows",
+    "colQuality": "Quality",
+    "colAnalysis": "Last analysis",
+    "colUpdated": "Uploaded",
+    "qualityOf": "{score} of 100",
+    "noScore": "Not scored yet",
+    "notAnalysed": "Not analysed yet",
+    "loadError": "We couldn't load your datasets."
+  },
+  "upload": {
+    "title": "Upload data",
+    "intro": "Upload one file per dataset. Your original file is always kept.",
+    "dropTitle": "Drag a file here, or choose one",
+    "dropHint": "CSV, TSV or Excel (.xlsx), up to {limit} MB. The first row should hold the column names.",
+    "choose": "Choose file",
+    "selected": "Selected file",
+    "remove": "Remove file",
+    "name": "Dataset name",
+    "nameHint": "Shown in your dataset list. You can use the file name.",
+    "description": "Description (optional)",
+    "submit": "Upload and check health",
+    "uploading": "Uploading… {percent}",
+    "uploaded": "Upload complete. Reading your file…",
+    "wrong_type": "\"{file}\" isn't a CSV, TSV or .xlsx file. Excel's older .xls format isn't supported; save it as .xlsx first.",
+    "empty": "\"{file}\" is empty. Choose a file that has a header row and data.",
+    "too_large": "\"{file}\" is {size}, over the {limit} MB limit. Split it or remove unused columns.",
+    "nameRequired": "Give the dataset a name."
+  },
+  "detail": {
+    "loadError": "We couldn't load this dataset.",
+    "cleanedFrom": "Cleaned from version {version}",
+    "originalFile": "From {file}",
+    "uploadedAt": "Uploaded {when}",
+    "processingTitle": "Reading your file",
+    "processingBody": "We're converting the file and detecting column types. Large files take a minute.",
+    "checkingTitle": "Checking data health",
+    "checkingBody": "Measuring missing values, duplicates and formats in every column.",
+    "failedTitle": "We couldn't read this file",
+    "failedHelp": "Check that the file opens in a spreadsheet app and has one header row, then upload it again.",
+    "profileFailedTitle": "The data health check failed",
+    "rerunProfile": "Run the check again",
+    "uploadAgain": "Upload a file",
+    "sections": {
+      "health": "Data health",
+      "issues": "What's lowering the score",
+      "plan": "Cleaning plan",
+      "columns": "Columns",
+      "preview": "Data preview",
+      "analysis": "Analysis"
+    }
+  },
+  "health": {
+    "scoreLabel": "Quality score",
+    "outOf": "out of 100",
+    "meterText": "Quality score {score} out of 100",
+    "previous": "Was {score} before cleaning",
+    "change": "{delta, plural, =0 {No change} other {{sign}# points}}",
+    "bands": {
+      "good": "Ready for analysis",
+      "fair": "Usable, with caveats",
+      "poor": "Needs cleaning first"
+    },
+    "relative": "Compare scores between versions; the number isn't an absolute grade.",
+    "dimensions": {
+      "completeness": "Completeness",
+      "validity": "Validity",
+      "uniqueness": "Uniqueness",
+      "consistency": "Consistency",
+      "sufficiency": "Enough data"
+    },
+    "dimensionValue": "{score} of {max}",
+    "noIssues": "No problems found. This data is ready for analysis.",
+    "pointsLost": "−{points} points",
+    "suggestion": "Suggested fix",
+    "affects": "Columns: {columns}"
+  },
+  "plan": {
+    "intro": "Fixes create a new version; your current version stays unchanged. Low-risk fixes are selected for you. Review medium and high-risk fixes before selecting them.",
+    "none": "Nothing to fix. This version needs no cleaning.",
+    "risk": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
+    "riskHelp": {
+      "low": "Changes formatting only; values keep their meaning.",
+      "medium": "Changes or removes some values. Check before applying.",
+      "high": "Can change the meaning of your data. Apply only if you're sure."
+    },
+    "recommended": "Recommended",
+    "affected": "{rows, plural, =0 {No rows} one {# row} other {# rows}} affected",
+    "nullStrategy": "How to handle empty cells",
+    "strategies": {
+      "keep": "Keep them empty",
+      "impute_median": "Fill with the median",
+      "impute_mode": "Fill with the most common value",
+      "drop_rows": "Remove those rows"
+    },
+    "dateOrder": "How to read dates like 03/04",
+    "dateOrders": {
+      "dayfirst": "Day first: 03/04 is 3 April",
+      "monthfirst": "Month first: 03/04 is March 4"
+    },
+    "dateOrderHelp": "Both readings are possible in this column. Choose the one your system uses.",
+    "selectedCount": "{count, plural, =0 {No fixes selected} one {# fix selected} other {# fixes selected}}",
+    "apply": "Apply fixes",
+    "applying": "Applying…",
+    "applied": "Fixes applied. Version {version} is being prepared.",
+    "fixTypes": {
+      "trim": "Trim spaces",
+      "case": "Make letter case consistent",
+      "cast": "Convert to numbers",
+      "parse_dates": "Read as dates",
+      "dedupe": "Remove duplicate rows",
+      "nulls": "Handle empty cells",
+      "flag_outliers": "Flag unusual values"
+    }
+  },
+  "columns": {
+    "intro": "Roles tell the analysis what each column means. Change any that look wrong.",
+    "colName": "Column",
+    "colType": "Detected type",
+    "colRole": "Role",
+    "colSource": "Set by",
+    "roleFor": "Role for {column}",
+    "source": {
+      "user": "You",
+      "rule": "Detected",
+      "llm": "Detected",
+      "default": "Detected"
+    },
+    "personal": "Personal data",
+    "personalHelp": "Treated as personal data: the assistant cannot read these values unless your company allows it.",
+    "saved": "Role for \"{column}\" saved.",
+    "rolesChangedTitle": "Roles changed",
+    "rolesChangedBody": "Your current results still use the old roles. Run the analysis again to update them.",
+    "rerun": "Run analysis again",
+    "later": "Later",
+    "types": {
+      "integer": "Whole number",
+      "float": "Decimal number",
+      "boolean": "Yes/no",
+      "date": "Date",
+      "timestamp": "Date and time",
+      "text": "Text",
+      "categorical": "Category",
+      "identifier": "Identifier",
+      "datetime": "Date and time"
+    },
+    "roles": {
+      "date": "Date",
+      "revenue": "Revenue",
+      "quantity": "Quantity",
+      "price": "Unit price",
+      "cost": "Cost",
+      "discount": "Discount",
+      "customer_id": "Customer ID",
+      "order_id": "Order ID",
+      "product": "Product",
+      "category": "Category",
+      "region": "Region",
+      "channel": "Sales channel",
+      "status": "Order status",
+      "email": "Email",
+      "phone": "Phone",
+      "churn_flag": "Churned (yes/no)",
+      "other": "Other"
+    }
+  },
+  "preview": {
+    "caption": "First {count, plural, one {# row} other {# rows}} of {total}",
+    "unavailable": "The preview isn't available yet."
+  },
+  "analysis": {
+    "intro": "The analysis runs each module on this version and explains any it skips.",
+    "run": "Run analysis",
+    "starting": "Starting…",
+    "running": "Running · {done} of {total} modules",
+    "notRun": "No analysis has run on this version yet.",
+    "queued": "Waiting to start",
+    "finished": "Finished {when}",
+    "result": {
+      "completed": "Analysis complete",
+      "completed_with_warnings": "Analysis complete, some modules skipped",
+      "failed": "Analysis failed",
+      "pending": "Queued",
+      "running": "Running"
+    },
+    "states": {
+      "waiting": "Waiting",
+      "running": "Running",
+      "completed": "Done",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "insights": "{count, plural, =0 {no findings} one {# finding} other {# findings}}",
+    "started": "Analysis started.",
+    "modules": {
+      "kpis": "Key figures",
+      "trend_seasonality": "Trend and seasonality",
+      "pareto": "Top products and dead stock",
+      "cohort_retention": "Customer retention",
+      "forecast": "Forecast",
+      "anomalies": "Unusual days",
+      "segmentation": "Customer segments",
+      "churn": "Churn risk",
+      "drivers": "Revenue drivers"
+    },
+    "runAgain": "Run analysis again"
+  },
+  "placeholder": {
+    "dashboard": {
+      "title": "Dashboard",
+      "body": "Your key figures, trends and forecast will appear here once a dataset has been analysed."
+    },
+    "insights": {
+      "title": "Insights",
+      "body": "Findings from your analyses, each with its evidence and confidence, will be listed here."
+    },
+    "chat": {
+      "title": "Ask the analyst",
+      "body": "Ask questions about your data and get answers backed by the numbers. This opens soon."
+    },
+    "reports": {
+      "title": "Reports",
+      "body": "Scheduled reports and alerts will be managed here."
+    },
+    "cta": "Go to datasets",
+    "notReady": "Not ready yet"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Your account",
+    "name": "Name",
+    "email": "Email",
+    "role": "Role",
+    "company": "Company",
+    "roles": {
+      "owner": "Owner",
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "preferences": "Preferences",
+    "language": "Language",
+    "theme": "Theme"
+  }
+}
