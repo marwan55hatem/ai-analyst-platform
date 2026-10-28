@@ -220,6 +220,31 @@ services:
       start_period: 15s
     mem_limit: 512m
 
+  # Next.js frontend. The browser talks only to this origin; /api/v1/* is rewritten to the
+  # api service, so no CORS is needed. Rewrites and NEXT_PUBLIC_ values are fixed at build
+  # time, hence build args; the upload limit shown to users comes from the same
+  # MAX_UPLOAD_MB the api enforces. For development run `npm run dev` on the host instead.
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        API_BASE_URL: http://api:8000
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Analyst}
+        NEXT_PUBLIC_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
+    image: ai-analyst-frontend:dev
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    mem_limit: 384m
+
 volumes:
   pgdata:
   mlflow-data:

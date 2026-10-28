@@ -36,3 +36,11 @@ coverage.json
 
 # generated fixtures (python evaluation/datasets/generators/retail_generator.py)
 evaluation/datasets/generated/
+
+# frontend
+next-env.d.ts
+*.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
+frontend/.lighthouse/
+frontend/blob-report/
