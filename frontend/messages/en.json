@@ -398,5 +398,403 @@
     "preferences": "Preferences",
     "language": "Language",
     "theme": "Theme"
+  },
+  "charts": {
+    "viewTable": "View as table",
+    "viewChart": "View as chart",
+    "loading": "Loading chart",
+    "actual": "Net revenue",
+    "forecast": "Forecast",
+    "band80": "80% range",
+    "band95": "95% range",
+    "spike": "Unusual spike",
+    "drop": "Unusual drop",
+    "forecastStarts": "Forecast",
+    "partial": "partly in range",
+    "period": "Period",
+    "low80": "80% low",
+    "high80": "80% high",
+    "low95": "95% low",
+    "high95": "95% high",
+    "marker": "Unusual",
+    "revenue": "Revenue",
+    "share": "Share",
+    "cumulative": "Running share",
+    "cumulativeShare": "running share {value}%",
+    "class": "Class",
+    "legend": "Bar textures",
+    "abc": {
+      "A": "A: the items that make 80% of sales",
+      "B": "B: the next 15%",
+      "C": "C: the last 5%"
+    }
+  },
+  "table": {
+    "range": "{from}–{to} of {total}",
+    "none": "No rows",
+    "empty": "No customers match these filters.",
+    "previous": "Previous",
+    "next": "Next",
+    "export": "Export CSV",
+    "exported": "CSV downloaded"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "description": "Headline figures for {name}, compared with the period just before.",
+    "descriptionEmpty": "Headline figures, the revenue trend and what needs attention.",
+    "loadFailed": "The figures could not be loaded",
+    "kpiHeading": "Headline figures",
+    "rangeSummary": "{start} – {end}, compared with {prevStart} – {prevEnd}",
+    "points": "{value} pts",
+    "noComparison": "No earlier period to compare",
+    "unavailable": "Not available for this file",
+    "direction": {
+      "up": "vs {previous}",
+      "down": "vs {previous}",
+      "flat": "about the same as {previous}",
+      "none": "vs {previous}"
+    },
+    "kpi": {
+      "net_revenue": "Net revenue",
+      "orders": "Orders",
+      "aov": "Average order value",
+      "units": "Units sold",
+      "margin_pct": "Gross margin"
+    },
+    "range": {
+      "label": "Dates",
+      "30d": "Last 30 days",
+      "90d": "Last 90 days",
+      "12m": "Last 12 months",
+      "ytd": "Year to date",
+      "all": "All data",
+      "custom": "Custom",
+      "from": "From",
+      "to": "To",
+      "apply": "Apply dates",
+      "invalid": "The end date must be on or after the start date."
+    },
+    "grain": {
+      "label": "Show by",
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "quarter": "Quarter"
+    },
+    "trend": {
+      "title": "Revenue trend",
+      "takeaway": "{count, plural, =0 {No unusual days in this range.} one {One unusual day is marked on the line.} other {# unusual days are marked on the line.}}",
+      "takeawayForecast": "The dashed line is the estimate for the next {periods} periods; the shaded bands show the 80% and 95% ranges.",
+      "unit": "Net revenue (sales minus returns) per {grain}",
+      "aria": "Line chart of net revenue over the selected dates",
+      "forecastHidden": "The forecast is made by {grain}.",
+      "showForecast": "Show it",
+      "events": "{count, plural, one {Unusual day} other {Unusual days}}"
+    },
+    "attention": {
+      "title": "What needs attention",
+      "body": "The five findings with the largest effect on revenue.",
+      "all": "All insights",
+      "empty": "No findings yet."
+    },
+    "contributors": {
+      "title": "Top contributors",
+      "unit": "Positive sales (returns not deducted); bar texture shows the ABC class",
+      "more": "Details",
+      "aria": "Sales by {dim}, largest first",
+      "missing": "The file has no {dim} column, so there is no ranking for it.",
+      "dim": {
+        "product": "Product",
+        "category": "Category",
+        "region": "Region",
+        "channel": "Channel"
+      }
+    },
+    "previousPeriod": "previous period"
+  },
+  "insights": {
+    "title": "Insights",
+    "description": "Every finding from the analysis, largest effect first, with the evidence behind it.",
+    "dataset": "Dataset",
+    "loading": "Loading the analysis",
+    "loadFailed": "The insights could not be loaded",
+    "filters": "Filters",
+    "filterType": "Type",
+    "filterConfidence": "Confidence",
+    "allTypes": "All types",
+    "allConfidence": "Any confidence",
+    "clearFilters": "Clear filters",
+    "shown": "{count, plural, one {# finding shown} other {# findings shown}}",
+    "loadMore": "Show more",
+    "loadingMore": "Loading…",
+    "openEvidence": "Open the evidence",
+    "sample": "{n} rows",
+    "method": "How it was measured",
+    "warnings": "Read with care",
+    "ask": "Ask the analyst about this",
+    "chatContext": "You asked about this finding:",
+    "empty": {
+      "title": "No findings yet",
+      "body": "The analysis finished without findings. Check the data health page for what was skipped."
+    },
+    "emptyFiltered": {
+      "title": "Nothing matches these filters",
+      "body": "Try another type or confidence, or clear the filters."
+    },
+    "confidence": {
+      "high": "High confidence",
+      "medium": "Medium confidence",
+      "low": "Low confidence"
+    },
+    "severity": {
+      "high": "High impact",
+      "medium": "Medium impact",
+      "low": "Low impact"
+    },
+    "evidence": {
+      "title": "Evidence",
+      "sql": "SQL",
+      "copy": "Copy",
+      "copied": "Copied",
+      "rows": "Showing {shown} of {total} rows",
+      "none": "This finding has no stored query."
+    },
+    "drawer": {
+      "loading": "Loading…",
+      "description": "The finding, how sure it is, and the queries that produced it.",
+      "failed": "This finding could not be loaded",
+      "close": "Close"
+    },
+    "nav": {
+      "label": "Insights sections",
+      "feed": "All findings",
+      "forecast": "Forecast",
+      "segments": "Segments",
+      "churn": "Churn risk",
+      "whatIf": "What-if"
+    },
+    "noData": {
+      "title": "No analysed data yet",
+      "body": "Upload a sales file. Once it is checked and analysed, the figures appear here.",
+      "cta": "Upload data"
+    },
+    "noRun": {
+      "title": "This dataset has not been analysed",
+      "body": "Run the analysis from the dataset page to see the figures here.",
+      "cta": "Open the dataset"
+    },
+    "running": {
+      "title": "The analysis is running",
+      "body": "{done} of {total} analyses are done. This page fills in when they finish.",
+      "cta": "Follow progress"
+    },
+    "failed": {
+      "title": "The analysis failed",
+      "body": "No results were stored. Open the dataset to see what happened and run it again.",
+      "cta": "Open the dataset"
+    },
+    "notice": {
+      "skipped": "{module} was skipped",
+      "failed": "{module} failed",
+      "reason": "Reason:",
+      "failedBody": "The rest of the analysis is still valid. Run the analysis again from the dataset page."
+    },
+    "needs": {
+      "kpis": "It needs a revenue column, or quantity and price.",
+      "trend_seasonality": "It needs a date column and revenue covering at least a few months.",
+      "pareto": "It needs revenue and a product, category or region column.",
+      "cohort_retention": "It needs a customer id, a date and several months of orders.",
+      "forecast": "It needs a date column and at least two years of revenue to learn the seasons.",
+      "anomalies": "It needs a date column and a few months of daily sales.",
+      "segmentation": "It needs a customer id, a date and revenue for enough customers.",
+      "churn": "It needs a customer id, order dates and enough repeat buyers over a year or more.",
+      "drivers": "It needs revenue plus columns that could explain it, such as price, discount or category."
+    },
+    "modules": {
+      "kpis": "Key figures",
+      "trend_seasonality": "Trend and seasonality",
+      "pareto": "Top contributors",
+      "cohort_retention": "Customer retention",
+      "forecast": "Forecast",
+      "anomalies": "Unusual days",
+      "segmentation": "Customer segments",
+      "churn": "Churn risk",
+      "drivers": "Revenue drivers"
+    }
+  },
+  "forecast": {
+    "title": "Forecast",
+    "description": "What revenue is likely to be next, as a range, and how well the model did on past data.",
+    "loadFailed": "The forecast could not be loaded",
+    "none": "No forecast was stored for this analysis.",
+    "series": "Series",
+    "total": "Total revenue",
+    "nextPeriod": "Estimate for {period}",
+    "range80": "80% range: {low} to {high}",
+    "range95": "95% range: {low} to {high}",
+    "model": "Model: {model}",
+    "takeaway": "History on the left, the next {periods} {unit}s on the right. Wider bands mean less certainty.",
+    "chartUnit": "Net revenue per {unit}",
+    "aria": "Line chart of net revenue history and forecast with 80% and 95% ranges",
+    "unit": {
+      "day": "day",
+      "week": "week",
+      "month": "month",
+      "quarter": "quarter"
+    },
+    "backtest": {
+      "title": "How well it did on past data",
+      "better": "Tested on {windows} past stretches of {horizon} {unit}s, the errors of {model} were {pct}% smaller than simply repeating last season.",
+      "notBetter": "Tested on {windows} past stretches of {horizon} {unit}s, {model} was not clearly better than simply repeating last season.",
+      "coverage": "The 80% range contained the real value in {pct} of the tested periods.",
+      "lowConfidence": "Treat this forecast as a rough guide: it did not beat the simple baseline.",
+      "mase": "{model} error (MASE)",
+      "baselineMase": "Baseline error (MASE)",
+      "smape": "Average error (sMAPE)",
+      "windows": "Tested stretches",
+      "maseHelp": "MASE below 1 means the model beats the seasonal baseline; lower is better."
+    }
+  },
+  "segments": {
+    "title": "Customer segments",
+    "description": "Customers grouped by how recently, how often and how much they buy, with a suggested action per group.",
+    "loadFailed": "The segments could not be loaded",
+    "answer": "{segment} bring {share}% of revenue from {customers} customers ({pct}% of all customers).",
+    "cards": "Segments",
+    "customers": "{n} customers",
+    "ofRevenue": "of revenue",
+    "avgSpend": "Average spend",
+    "avgOrders": "Average orders",
+    "avgRecency": "Last purchase",
+    "days": "{n} days ago",
+    "action": "Suggested action",
+    "clusters": "{k} behaviour clusters · stability {ari}",
+    "table": "Customers",
+    "pseudonyms": "Customer ids are personal data, so they are shown as pseudonyms.",
+    "filter": "Segment",
+    "allSegments": "All segments",
+    "grid": {
+      "title": "Recency by frequency",
+      "takeaway": "Each cell counts customers by how recently (rows) and how often (columns) they buy. The top right holds the best customers.",
+      "caption": "Customers by recency score and frequency score",
+      "recency": "Recency score",
+      "frequency": "Frequency score",
+      "r": "R {r}",
+      "f": "F {f}",
+      "tooltip": "{n} customers ({pct}%) with recency {r} and frequency {f}",
+      "fewer": "Fewer",
+      "more": "More customers"
+    },
+    "col": {
+      "customer": "Customer",
+      "segment": "Segment",
+      "spend": "Spend",
+      "orders": "Orders",
+      "recency": "Days since last order",
+      "rfm": "R-F-M",
+      "cluster": "Cluster"
+    },
+    "names": {
+      "Champions": "Champions",
+      "Loyal": "Loyal",
+      "Potential loyalists": "Potential loyalists",
+      "New": "New",
+      "At risk": "At risk",
+      "Hibernating": "Hibernating",
+      "Lost": "Lost"
+    }
+  },
+  "churn": {
+    "title": "Churn risk",
+    "description": "Customers who may stop buying, the revenue at stake, and the reasons behind each estimate.",
+    "loadFailed": "The churn results could not be loaded",
+    "summary": "Summary",
+    "highRisk": "Customers at high risk",
+    "ofCustomers": "of {total} scored customers",
+    "yearlySpend": "Their yearly spend",
+    "yearlySpendHelp": "Revenue at stake if they all stopped",
+    "expectedLoss": "Expected loss",
+    "expectedLossHelp": "Each customer's risk times their spend",
+    "modelCheck": "Model check: AUC {auc}% on later data",
+    "outOfTime": "Tested on a later period",
+    "estimateNote": "These are estimates from past buying patterns, not certainties.",
+    "table": "Customers at risk",
+    "tableHelp": "Sorted by expected loss. Choose a customer to see why.",
+    "filter": "Risk",
+    "allBands": "Any risk",
+    "openCustomer": "Show why {customer} is at risk",
+    "band": {
+      "high": "High risk",
+      "medium": "Medium risk",
+      "low": "Low risk"
+    },
+    "col": {
+      "customer": "Customer",
+      "probability": "Estimated risk",
+      "band": "Risk",
+      "stake": "Revenue at stake",
+      "loss": "Expected loss",
+      "recency": "Days since last order"
+    },
+    "drivers": {
+      "title": "What drives the risk overall",
+      "takeaway": "{label} explains {pct}% of the estimates.",
+      "unit": "Share of the explanation of the model (mean absolute SHAP)",
+      "factor": "Factor",
+      "share": "Share"
+    },
+    "panel": {
+      "description": "The three things that moved this estimate the most.",
+      "orders": "Orders",
+      "reasons": "Top reasons",
+      "raises": "Raises risk:",
+      "lowers": "Lowers risk:",
+      "help": "Bar length shows how strongly each reason moved the estimate.",
+      "note": "An association in past data, not a proven cause.",
+      "close": "Close"
+    }
+  },
+  "whatIf": {
+    "title": "What-if",
+    "description": "Estimate what a change to price, discount, volume or cost would do to yearly revenue and profit.",
+    "scenarios": "Scenarios",
+    "limit": "Up to {n} scenarios, each between −{max}% and +{max}%.",
+    "scenario": "Scenario {n}",
+    "remove": "Remove",
+    "lever": "Change",
+    "scope": "Applies to",
+    "choose": "Choose…",
+    "change": "Change (%)",
+    "changeSlider": "Change for scenario {n}, in percent",
+    "add": "Add a scenario",
+    "run": "Estimate",
+    "running": "Estimating…",
+    "needTarget": "Choose a category or product for each scenario that needs one.",
+    "failed": "The estimate could not be made",
+    "results": "Results",
+    "revenue": "Yearly revenue change",
+    "profit": "Yearly profit change",
+    "low": "Low",
+    "expected": "Expected",
+    "high": "High",
+    "assumptions": "Assumptions",
+    "evidence": "Evidence",
+    "notEnough": "Not enough evidence in the data to estimate this change. Try a wider scope or a smaller change.",
+    "outOfRange": "This change goes beyond the prices seen in your data, so the estimate is an extrapolation and may be off.",
+    "levers": {
+      "price": "Price",
+      "discount": "Discount",
+      "volume": "Volume",
+      "cost": "Unit cost"
+    },
+    "scopes": {
+      "all": "All items",
+      "category": "One category",
+      "product": "One product"
+    },
+    "target": {
+      "category": "Category",
+      "product": "Product"
+    }
   }
 }

@@ -1,21 +1,42 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { api, unwrap } from "@/lib/api/client";
 import type {
   AnalysisRun,
   AnalysisRunListItem,
+  Anomalies,
+  Capabilities,
+  Churn,
+  ChurnSort,
   CleaningPlan,
   ColumnProfile,
   Dataset,
   DatasetDetail,
   DatasetVersion,
+  Drivers,
   FixChoice,
+  Grain,
+  Insight,
+  InsightSummary,
   Preview,
   Profile,
   Quality,
   Role,
+  ScenarioIn,
+  Segments,
+  SegmentName,
+  SegmentSort,
+  SortOrder,
+  TimeSeries,
+  WhatIfResult,
 } from "@/lib/api/types";
 import { isRunActive } from "@/lib/api/types";
 
@@ -29,7 +50,13 @@ export const keys = {
     ["dataset", id, "v", version, what] as const,
   runs: (id: string, version: number) => ["dataset", id, "v", version, "runs"] as const,
   run: (runId: string) => ["run", runId] as const,
+  runData: (runId: string, what: string, params: object = {}) =>
+    ["run", runId, what, params] as const,
+  insight: (id: string) => ["insight", id] as const,
 };
+
+/** Results of a finished run do not change, so they stay fresh for the session. */
+const RUN_STALE_MS = 5 * 60_000;
 
 /** Whether a version is still being read or checked by the worker. */
 export function isVersionBusy(v: DatasetVersion | null | undefined): boolean {
@@ -211,5 +238,209 @@ export function useRerunProfile(id: string, version: number) {
         api.POST("/api/v1/datasets/{dataset_id}/profile/rerun", versionQuery(id, version)),
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: keys.dataset(id) }),
+  });
+}
+
+export function useCapabilities(id: string, version: number, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.versionData(id, version, "capabilities"),
+    enabled,
+    staleTime: RUN_STALE_MS,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/datasets/{dataset_id}/capabilities", versionQuery(id, version)),
+      ) as Promise<Capabilities>,
+  });
+}
+
+export interface RangeQuery {
+  start?: string;
+  end?: string;
+  grain: Grain;
+}
+
+/** KPIs for a date range vs the window before it, and the series (computed by the backend). */
+export function useTimeseries(id: string, version: number, range: RangeQuery, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.versionData(id, version, `ts:${range.start}:${range.end}:${range.grain}`),
+    enabled,
+    staleTime: RUN_STALE_MS,
+    placeholderData: keepPreviousData,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/datasets/{dataset_id}/timeseries", {
+          params: { path: { dataset_id: id }, query: { version, ...range } },
+        }),
+      ) as Promise<TimeSeries>,
+  });
+}
+
+export interface InsightFilters {
+  module?: string;
+  confidence?: "high" | "medium" | "low";
+}
+
+export const INSIGHT_PAGE = 20;
+
+/** Insights of a run, highest impact first, one server page at a time. */
+export function useInsights(runId: string | undefined, filters: InsightFilters = {}) {
+  return useInfiniteQuery({
+    queryKey: keys.runData(runId ?? "", "insights", filters),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/insights", {
+          params: {
+            path: { run_id: runId ?? "" },
+            query: { ...filters, limit: INSIGHT_PAGE, offset: pageParam },
+          },
+        }),
+      ) as Promise<InsightSummary[]>,
+    getNextPageParam: (last, pages) =>
+      last.length === INSIGHT_PAGE ? pages.length * INSIGHT_PAGE : undefined,
+  });
+}
+
+/** Insights of one module of a run (small lists such as the Pareto dimensions). */
+export function useModuleInsights(runId: string | undefined, module: string) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "module", { module }),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    queryFn: async () => {
+      const list = await unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/insights", {
+          params: { path: { run_id: runId ?? "" }, query: { module, limit: 50 } },
+        }),
+      );
+      return Promise.all(
+        list.map(
+          (i) =>
+            unwrap(
+              api.GET("/api/v1/insights/{insight_id}", {
+                params: { path: { insight_id: i.id } },
+              }),
+            ) as Promise<Insight>,
+        ),
+      );
+    },
+  });
+}
+
+export function useInsight(id: string | null) {
+  return useQuery({
+    queryKey: keys.insight(id ?? ""),
+    enabled: Boolean(id),
+    staleTime: RUN_STALE_MS,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/insights/{insight_id}", { params: { path: { insight_id: id ?? "" } } }),
+      ) as Promise<Insight>,
+  });
+}
+
+export function useForecasts(runId: string | undefined) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "forecast"),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    queryFn: async () => {
+      const found = await unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/forecast", {
+          params: { path: { run_id: runId ?? "" } },
+        }),
+      );
+      return { ...found, forecasts: found.forecasts as unknown as Insight[] };
+    },
+  });
+}
+
+export function useAnomalies(runId: string | undefined) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "anomalies"),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/anomalies", {
+          params: { path: { run_id: runId ?? "" } },
+        }),
+      ) as Promise<Anomalies>,
+  });
+}
+
+export function useDrivers(runId: string | undefined) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "drivers"),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/drivers", {
+          params: { path: { run_id: runId ?? "" } },
+        }),
+      ) as Promise<Drivers>,
+  });
+}
+
+export interface SegmentQuery {
+  segment?: SegmentName;
+  cluster?: number;
+  sort: SegmentSort;
+  order: SortOrder;
+  limit: number;
+  offset: number;
+}
+
+export function useSegments(runId: string | undefined, query: SegmentQuery) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "segments", query),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    placeholderData: keepPreviousData,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/segments", {
+          params: { path: { run_id: runId ?? "" }, query },
+        }),
+      ) as Promise<Segments>,
+  });
+}
+
+export interface ChurnQuery {
+  risk_band?: "high" | "medium" | "low";
+  rank_band?: "top_10pct" | "rest";
+  sort: ChurnSort;
+  order: SortOrder;
+  limit: number;
+  offset: number;
+}
+
+export function useChurn(runId: string | undefined, query: ChurnQuery) {
+  return useQuery({
+    queryKey: keys.runData(runId ?? "", "churn", query),
+    enabled: Boolean(runId),
+    staleTime: RUN_STALE_MS,
+    placeholderData: keepPreviousData,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/analysis-runs/{run_id}/churn", {
+          params: { path: { run_id: runId ?? "" }, query },
+        }),
+      ) as Promise<Churn>,
+  });
+}
+
+export function useWhatIf(id: string, version: number) {
+  return useMutation({
+    mutationFn: (scenarios: ScenarioIn[]) =>
+      unwrap(
+        api.POST("/api/v1/datasets/{dataset_id}/what-if", {
+          params: { path: { dataset_id: id }, query: { version } },
+          body: { scenarios },
+        }),
+      ) as unknown as Promise<WhatIfResult>,
   });
 }

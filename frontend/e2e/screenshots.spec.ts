@@ -3,7 +3,8 @@ import { mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { SAMPLE_MESSY, dialScore, msg, register, waitForAnalysis } from "./helpers";
+import { GROUND_TRUTH } from "./global-setup";
+import { SAMPLE_MESSY, dialScore, msg, register, uploadAnalysed, waitForAnalysis } from "./helpers";
 
 /**
  * Screenshots of every page: en/ar x light/dark x 375/1440. Run on demand:
@@ -39,6 +40,8 @@ test("capture every page", async ({ browser, baseURL }, testInfo) => {
   await expect(page.getByTestId("version")).toHaveText(msg("en", "common.version", { version: 2 }), { timeout: 60_000 });
   await dialScore(page);
   await waitForAnalysis(page);
+  // Two years of daily sales for the dashboard and insights pages (the newest dataset).
+  await uploadAnalysed(page, GROUND_TRUTH);
   await setup.close();
 
   const pages: { name: string; url: string; auth: boolean; full?: boolean }[] = [
@@ -47,7 +50,12 @@ test("capture every page", async ({ browser, baseURL }, testInfo) => {
     { name: "datasets", url: "/datasets", auth: true },
     { name: "upload", url: "/datasets/new", auth: true },
     { name: "detail", url: detailUrl, auth: true, full: true },
-    { name: "dashboard", url: "/dashboard", auth: true },
+    { name: "dashboard", url: "/dashboard", auth: true, full: true },
+    { name: "insights", url: "/insights", auth: true, full: true },
+    { name: "forecast", url: "/insights/forecast", auth: true, full: true },
+    { name: "segments", url: "/insights/segments", auth: true, full: true },
+    { name: "churn", url: "/insights/churn", auth: true, full: true },
+    { name: "what-if", url: "/insights/what-if", auth: true },
     { name: "settings", url: "/settings", auth: true },
   ];
 

@@ -142,6 +142,15 @@ class AssignmentPage(BaseModel):
     offset: int
 
 
+class RfmCellOut(BaseModel):
+    """Customers in one recency x frequency score cell and their total spend."""
+
+    r_score: int
+    f_score: int
+    customers: int
+    monetary: float
+
+
 class SegmentsOut(BaseModel):
     """A run's customer segments: RFM table, cluster profiles, stability and assignments."""
 
@@ -157,6 +166,9 @@ class SegmentsOut(BaseModel):
     clusters: list[dict[str, Any]]
     k: int | None
     stability: dict[str, Any] | None
+    rfm_grid: list[RfmCellOut] = Field(
+        description="Customers and total spend per recency x frequency score cell (1-5 each)"
+    )
     assignments: AssignmentPage
     insights: list[InsightOut]
 

@@ -1411,6 +1411,25 @@
         "title": "DatasetVersionOut",
         "type": "object"
       },
+      "DateWindow": {
+        "description": "An inclusive date range (ISO dates).",
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "DateWindow",
+        "type": "object"
+      },
       "DriversOut": {
         "description": "A run's revenue drivers; they describe association, not proven cause.",
         "properties": {
@@ -1541,6 +1560,47 @@
           "message"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EvidenceOut": {
+        "description": "The SQL behind the figures and the first rows of its result.",
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "sql": {
+            "title": "Sql",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purpose",
+          "sql",
+          "columns",
+          "rows",
+          "row_count"
+        ],
+        "title": "EvidenceOut",
         "type": "object"
       },
       "FixChoice": {
@@ -2009,6 +2069,101 @@
           "created_at"
         ],
         "title": "InsightSummary",
+        "type": "object"
+      },
+      "KpiOut": {
+        "description": "One headline figure for the range and its change vs the window before it.",
+        "properties": {
+          "available": {
+            "description": "False when the file lacks the column this needs",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relative change in percent, or percentage points for margin; null with a reason when there is nothing to compare with",
+            "title": "Change"
+          },
+          "change_unit": {
+            "enum": [
+              "percent",
+              "points"
+            ],
+            "title": "Change Unit",
+            "type": "string"
+          },
+          "key": {
+            "enum": [
+              "net_revenue",
+              "orders",
+              "aov",
+              "units",
+              "margin_pct"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "previous_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Value"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "unit": {
+            "enum": [
+              "money",
+              "count",
+              "percent"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "unit",
+          "available",
+          "value",
+          "previous_value",
+          "change",
+          "change_unit",
+          "reason"
+        ],
+        "title": "KpiOut",
         "type": "object"
       },
       "LoginRequest": {
@@ -2508,6 +2663,35 @@
         "title": "RegisterRequest",
         "type": "object"
       },
+      "RfmCellOut": {
+        "description": "Customers in one recency x frequency score cell and their total spend.",
+        "properties": {
+          "customers": {
+            "title": "Customers",
+            "type": "integer"
+          },
+          "f_score": {
+            "title": "F Score",
+            "type": "integer"
+          },
+          "monetary": {
+            "title": "Monetary",
+            "type": "number"
+          },
+          "r_score": {
+            "title": "R Score",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "r_score",
+          "f_score",
+          "customers",
+          "monetary"
+        ],
+        "title": "RfmCellOut",
+        "type": "object"
+      },
       "Role": {
         "description": "Tenant-level roles, most to least privileged.",
         "enum": [
@@ -2727,6 +2911,14 @@
             "title": "Pseudonymized Customer Ids",
             "type": "boolean"
           },
+          "rfm_grid": {
+            "description": "Customers and total spend per recency x frequency score cell (1-5 each)",
+            "items": {
+              "$ref": "#/components/schemas/RfmCellOut"
+            },
+            "title": "Rfm Grid",
+            "type": "array"
+          },
           "run_id": {
             "format": "uuid",
             "title": "Run Id",
@@ -2787,10 +2979,82 @@
           "clusters",
           "k",
           "stability",
+          "rfm_grid",
           "assignments",
           "insights"
         ],
         "title": "SegmentsOut",
+        "type": "object"
+      },
+      "SeriesPoint": {
+        "description": "One period of the series; periods without rows are zero.",
+        "properties": {
+          "aov": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aov"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "net_revenue": {
+            "title": "Net Revenue",
+            "type": "number"
+          },
+          "orders": {
+            "title": "Orders",
+            "type": "number"
+          },
+          "partial": {
+            "description": "The period is only partly inside the selected range",
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "required": [
+          "period",
+          "net_revenue",
+          "orders",
+          "aov",
+          "units",
+          "margin_pct",
+          "rows",
+          "partial"
+        ],
+        "title": "SeriesPoint",
         "type": "object"
       },
       "SheetsOut": {
@@ -2834,6 +3098,118 @@
           "created_at"
         ],
         "title": "TenantOut",
+        "type": "object"
+      },
+      "TimeSeriesOut": {
+        "description": "KPIs, comparison window and series for one dataset version and date range.",
+        "properties": {
+          "confidence": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "data_range": {
+            "$ref": "#/components/schemas/DateWindow"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "format": "uuid",
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceOut"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "grain": {
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Grain",
+            "type": "string"
+          },
+          "kpis": {
+            "items": {
+              "$ref": "#/components/schemas/KpiOut"
+            },
+            "title": "Kpis",
+            "type": "array"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "previous_range": {
+            "$ref": "#/components/schemas/DateWindow"
+          },
+          "range": {
+            "$ref": "#/components/schemas/DateWindow"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "dataset_version_id",
+          "version",
+          "range",
+          "data_range",
+          "previous_range",
+          "grain",
+          "currency",
+          "kpis",
+          "series",
+          "sample_size",
+          "confidence",
+          "method",
+          "warnings",
+          "evidence"
+        ],
+        "title": "TimeSeriesOut",
         "type": "object"
       },
       "TokenResponse": {
@@ -3184,7 +3560,7 @@
     },
     "/api/v1/analysis-runs/{run_id}/churn": {
       "get": {
-        "description": "Return the churn model summary and customers (highest estimated risk first).",
+        "description": "Return the churn model summary and customers (highest estimated risk first by default).",
         "operationId": "get_churn_api_v1_analysis_runs__run_id__churn_get",
         "parameters": [
           {
@@ -3236,6 +3612,37 @@
                 }
               ],
               "title": "Rank Band"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "probability",
+              "enum": [
+                "probability",
+                "revenue_at_stake",
+                "expected_loss",
+                "recency_days",
+                "monetary"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           },
           {
@@ -3310,6 +3717,143 @@
           }
         ],
         "summary": "Estimated churn risk of a run: model check, bands and a page of customers",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/analysis-runs/{run_id}/churn.csv": {
+      "get": {
+        "description": "Return the run's churn scores as a CSV download (pseudonyms kept, formulas neutralised).",
+        "operationId": "export_churn_api_v1_analysis_runs__run_id__churn_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "risk_band",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "high",
+                    "medium",
+                    "low"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Risk Band"
+            }
+          },
+          {
+            "in": "query",
+            "name": "rank_band",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "top_10pct",
+                    "rest"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rank Band"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "probability",
+              "enum": [
+                "probability",
+                "revenue_at_stake",
+                "expected_loss",
+                "recency_days",
+                "monetary"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "CSV file"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Per-customer churn risk of a run with the top 3 reasons as CSV",
         "tags": [
           "analysis"
         ]
@@ -3675,6 +4219,36 @@
           },
           {
             "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "customer_key",
+              "enum": [
+                "customer_key",
+                "monetary",
+                "frequency",
+                "recency_days"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
@@ -3745,6 +4319,144 @@
           }
         ],
         "summary": "Customer segments of a run and a page of per-customer assignments",
+        "tags": [
+          "analysis"
+        ]
+      }
+    },
+    "/api/v1/analysis-runs/{run_id}/segments.csv": {
+      "get": {
+        "description": "Return the run's assignments as a CSV download (pseudonyms kept, formulas neutralised).",
+        "operationId": "export_segments_api_v1_analysis_runs__run_id__segments_csv_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "segment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "Champions",
+                    "Loyal",
+                    "Potential loyalists",
+                    "New",
+                    "At risk",
+                    "Hibernating",
+                    "Lost"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Segment"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cluster",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 20,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cluster"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "customer_key",
+              "enum": [
+                "customer_key",
+                "monetary",
+                "frequency",
+                "recency_days"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "CSV file"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Customer segment assignments of a run as CSV (same filters and sort as the page)",
         "tags": [
           "analysis"
         ]
@@ -6165,6 +6877,155 @@
         "summary": "List the sheets of an Excel dataset",
         "tags": [
           "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/timeseries": {
+      "get": {
+        "description": "Aggregate the version's rows inside the range; the SQL is returned as evidence.",
+        "operationId": "get_time_series_api_v1_datasets__dataset_id__timeseries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "description": "Inclusive date (default: the edge of the data)",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive date (default: the edge of the data)",
+              "title": "Start"
+            }
+          },
+          {
+            "description": "Inclusive date (default: the edge of the data)",
+            "in": "query",
+            "name": "end",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive date (default: the edge of the data)",
+              "title": "End"
+            }
+          },
+          {
+            "in": "query",
+            "name": "grain",
+            "required": false,
+            "schema": {
+              "default": "day",
+              "enum": [
+                "day",
+                "week",
+                "month"
+              ],
+              "title": "Grain",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TimeSeriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Headline KPIs for a date range vs the window before it, and a revenue series",
+        "tags": [
+          "dashboard"
         ]
       }
     },

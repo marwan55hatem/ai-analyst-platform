@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api.v1 import analysis, auth, chat, datasets, forecast, health, team, whatif
+from app.api.v1 import analysis, auth, chat, datasets, forecast, health, team, timeseries, whatif
 from app.core.config import get_settings, warn_derived_pseudonym_secret
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
         analysis.router,
         forecast.router,
         whatif.router,
+        timeseries.router,
         chat.router,
     ):
         application.include_router(router, prefix="/api/v1")

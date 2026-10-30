@@ -1,6 +1,22 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-import { SAMPLE_MESSY, dialScore, expectNoAxeViolations, msg, register, waitForAnalysis } from "./helpers";
+import { GROUND_TRUTH } from "./global-setup";
+import { SAMPLE_MESSY, dialScore, expectNoAxeViolations, msg, register, uploadAnalysed, waitForAnalysis } from "./helpers";
+
+/** Names the elements that reach past the viewport, so a sideways scroll is easy to trace. */
+async function widestElements(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const wide = Array.from(document.querySelectorAll("body *")).filter(
+      (el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === "visible",
+    );
+    // Keep the innermost ones: the outer boxes only inherit the overflow.
+    const inner = wide.filter((el) => !wide.some((other) => other !== el && el.contains(other)));
+    return inner
+      .slice(0, 6)
+      .map((el) => `${el.tagName.toLowerCase()}(${el.scrollWidth}>${el.clientWidth})${el.className ? "." + String(el.className).slice(0, 50) : ""}`)
+      .join(" | ");
+  });
+}
 
 /** axe (WCAG 2.2 A/AA) on every page: en/ar x light/dark x 1440/375, plus no sideways scroll. */
 test("every page passes axe in both languages, themes and widths", async ({ browser, baseURL }, testInfo) => {
@@ -14,10 +30,25 @@ test("every page passes axe in both languages, themes and widths", async ({ brow
   const detail = new URL(setup.url()).pathname;
   await dialScore(setup);
   await waitForAnalysis(setup);
+  // The dashboard and insights pages show the newest dataset: two years of daily sales.
+  await uploadAnalysed(setup, GROUND_TRUTH);
   await setup.close();
 
   const publicPages = ["/login", "/register"];
-  const appPages = ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/chat", "/reports", "/settings"];
+  const appPages = [
+    "/datasets",
+    "/datasets/new",
+    detail,
+    "/dashboard",
+    "/insights",
+    "/insights/forecast",
+    "/insights/segments",
+    "/insights/churn",
+    "/insights/what-if",
+    "/chat",
+    "/reports",
+    "/settings",
+  ];
 
   for (const locale of ["en", "ar"] as const) {
     for (const scheme of ["light", "dark"] as const) {
@@ -31,7 +62,8 @@ test("every page passes axe in both languages, themes and widths", async ({ brow
           const name = url === detail ? "detail" : url.replace(/\//g, "_");
           await expectNoAxeViolations(page, `${locale}-${scheme}-${width}${name}`);
           const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-          expect(overflow, `horizontal scroll on ${url} at ${width}px`).toBeLessThanOrEqual(0);
+          const wide = overflow > 0 ? await widestElements(page) : "";
+          expect(overflow, `horizontal scroll on ${url} at ${width}px ${wide}`).toBeLessThanOrEqual(0);
         };
         for (const url of publicPages) await check(url);
         await page.goto("/login");

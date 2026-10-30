@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     driver_shap_rows: int = 2_000
     driver_max_seconds: float = 60.0
     whatif_max_concurrent: int = 2
+    timeseries_max_points: int = 1_500
+    export_max_rows: int = 50_000
     pseudonym_secret: str = ""
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"

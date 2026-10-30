@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type BrowserContext, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -85,4 +85,58 @@ export async function waitForAnalysis(page: Page): Promise<string> {
     timeout: 300_000,
   });
   return (await progress.getAttribute("data-status")) ?? "";
+}
+
+/**
+ * Upload the two-year ground-truth file as the signed-in user and wait for its analysis.
+ * Returns the dataset id; the dashboard and insights pages pick the newest dataset by default.
+ */
+export async function uploadAnalysed(page: Page, file: string, locale: Locale = "en"): Promise<string> {
+  await page.goto("/datasets/new");
+  await page.getByTestId("file-input").setInputFiles(file);
+  await page.getByRole("button", { name: msg(locale, "upload.submit") }).click();
+  await expect(page).toHaveURL(/\/datasets\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  const id = new URL(page.url()).pathname.split("/").pop() ?? "";
+  const status = await waitForAnalysis(page);
+  expect(status).toMatch(/^completed/);
+  return id;
+}
+
+export type DemoUser = ReturnType<typeof demoUser>;
+
+let shared: Promise<DemoUser> | null = null;
+
+/**
+ * One demo user with the ground-truth dataset analysed, shared by the dashboard, what-if and
+ * visual specs. Sign-up is limited to 5 per hour per address, and the suite runs in a single
+ * worker, so the user lives in memory for the whole run (never written to disk).
+ */
+export function analysedUser(browser: Browser, file: string): Promise<DemoUser> {
+  shared ??= (async () => {
+    const page = await browser.newPage();
+    const user = await register(page, "en");
+    await uploadAnalysed(page, file);
+    await page.close();
+    return user;
+  })();
+  return shared;
+}
+
+/** Sign in through the login page in the given language. */
+export async function login(page: Page, user: DemoUser, locale: Locale = "en"): Promise<void> {
+  await page.goto("/login");
+  await page.getByLabel(msg(locale, "auth.email")).fill(user.email);
+  await page.getByLabel(msg(locale, "auth.password"), { exact: true }).fill(user.password);
+  const submit = page.getByRole("button", { name: msg(locale, "auth.loginSubmit") });
+  // Sign-ins are rate limited per address: a spec that signs in many times waits and retries.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await submit.click();
+    try {
+      await expect(page).toHaveURL(/\/datasets$/, { timeout: 15_000 });
+      return;
+    } catch (error) {
+      if (attempt === 3 || (await page.getByRole("alert").count()) === 0) throw error;
+      await page.waitForTimeout(12_000);
+    }
+  }
 }

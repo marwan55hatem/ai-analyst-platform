@@ -1,11 +1,12 @@
 """Tenant-scoped repositories: every query is filtered by tenant_id automatically."""
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import Select, delete, func, insert, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.errors import NotFoundError
 from app.db.base import TenantMixin
@@ -244,7 +245,10 @@ class InsightRepository(TenantRepository[Insight]):
             stmt = stmt.where(Insight.confidence == confidence)
         if module is not None:
             stmt = stmt.where(Insight.module == module)
-        stmt = stmt.order_by(Insight.impact_score.desc(), Insight.id).limit(limit).offset(offset)
+        # Ties break on the title, then the id: ids are random per run, so on their own they
+        # would reshuffle equal-impact insights between runs of the same data.
+        stmt = stmt.order_by(Insight.impact_score.desc(), Insight.title, Insight.id)
+        stmt = stmt.limit(limit).offset(offset)
         return list(self.session.scalars(stmt))
 
     def delete_for_version(self, version_id: uuid.UUID) -> None:
@@ -254,6 +258,34 @@ class InsightRepository(TenantRepository[Insight]):
                 Insight.tenant_id == self.tenant_id, Insight.dataset_version_id == version_id
             )
         )
+
+
+# Sort keys clients may ask for, mapped to fixed columns (no SQL is built from user input).
+SEGMENT_SORTS: dict[str, InstrumentedAttribute[Any]] = {
+    "customer_key": SegmentAssignment.customer_key,
+    "monetary": SegmentAssignment.monetary,
+    "frequency": SegmentAssignment.frequency,
+    "recency_days": SegmentAssignment.recency_days,
+}
+CHURN_SORTS: dict[str, InstrumentedAttribute[Any]] = {
+    "probability": ChurnScore.probability,
+    "revenue_at_stake": ChurnScore.revenue_at_stake,
+    "expected_loss": ChurnScore.expected_loss,
+    "recency_days": ChurnScore.recency_days,
+    "monetary": ChurnScore.monetary,
+}
+EXPORT_BATCH = 1000
+
+
+def _ordered(
+    stmt: Select[Any],
+    column: InstrumentedAttribute[Any],
+    descending: bool,
+    model: type[SegmentAssignment] | type[ChurnScore],
+) -> Select[Any]:
+    """Order by one column, then by customer key and id so pages never overlap."""
+    first = column.desc() if descending else column.asc()
+    return stmt.order_by(first, model.customer_key, model.id)
 
 
 class SegmentAssignmentRepository(TenantRepository[SegmentAssignment]):
@@ -272,28 +304,71 @@ class SegmentAssignmentRepository(TenantRepository[SegmentAssignment]):
         fixed = {"tenant_id": self.tenant_id, "run_id": run_id, "dataset_version_id": version_id}
         self.session.execute(insert(SegmentAssignment), [{**r, **fixed} for r in rows])
 
+    def _filtered(self, run_id: uuid.UUID, segment: str | None, cluster: int | None) -> Select[Any]:
+        stmt = self._select().where(SegmentAssignment.run_id == run_id)
+        if segment is not None:
+            stmt = stmt.where(SegmentAssignment.rfm_segment == segment)
+        if cluster is not None:
+            stmt = stmt.where(SegmentAssignment.cluster == cluster)
+        return stmt
+
     def page(
         self,
         run_id: uuid.UUID,
         *,
         segment: str | None = None,
         cluster: int | None = None,
+        sort: str = "customer_key",
+        descending: bool = False,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[SegmentAssignment], int]:
-        """Return one page of a run's assignments (ordered by customer key) and the total."""
-        stmt = self._select().where(SegmentAssignment.run_id == run_id)
-        if segment is not None:
-            stmt = stmt.where(SegmentAssignment.rfm_segment == segment)
-        if cluster is not None:
-            stmt = stmt.where(SegmentAssignment.cluster == cluster)
+        """Return one page of a run's assignments (sorted by a whitelisted column) and the total."""
+        stmt = self._filtered(run_id, segment, cluster)
         total = self.session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-        rows = self.session.scalars(
-            stmt.order_by(SegmentAssignment.customer_key, SegmentAssignment.id)
-            .limit(limit)
-            .offset(offset)
-        )
+        ordered = _ordered(stmt, SEGMENT_SORTS[sort], descending, SegmentAssignment)
+        rows = self.session.scalars(ordered.limit(limit).offset(offset))
         return list(rows), int(total)
+
+    def grid(self, run_id: uuid.UUID) -> list[dict[str, Any]]:
+        """Return customers and spend per (recency score, frequency score) cell of a run."""
+        stmt = (
+            select(
+                SegmentAssignment.r_score,
+                SegmentAssignment.f_score,
+                func.count().label("customers"),
+                func.sum(SegmentAssignment.monetary).label("monetary"),
+            )
+            .where(
+                SegmentAssignment.tenant_id == self.tenant_id,
+                SegmentAssignment.run_id == run_id,
+            )
+            .group_by(SegmentAssignment.r_score, SegmentAssignment.f_score)
+            .order_by(SegmentAssignment.r_score, SegmentAssignment.f_score)
+        )
+        return [
+            {"r_score": r, "f_score": f, "customers": int(n), "monetary": float(m or 0)}
+            for r, f, n, m in self.session.execute(stmt)
+        ]
+
+    def stream(
+        self,
+        run_id: uuid.UUID,
+        *,
+        segment: str | None = None,
+        cluster: int | None = None,
+        sort: str = "customer_key",
+        descending: bool = False,
+        cap: int,
+    ) -> Iterator[SegmentAssignment]:
+        """Yield up to `cap` assignments in the page order, fetched in batches (for export)."""
+        stmt = _ordered(
+            self._filtered(run_id, segment, cluster),
+            SEGMENT_SORTS[sort],
+            descending,
+            SegmentAssignment,
+        ).limit(cap)
+        yield from self.session.scalars(stmt.execution_options(yield_per=EXPORT_BATCH))
 
     def delete_for_version(self, version_id: uuid.UUID) -> None:
         """Remove every assignment of a version (a re-run replaces them)."""
@@ -321,28 +396,49 @@ class ChurnScoreRepository(TenantRepository[ChurnScore]):
         fixed = {"tenant_id": self.tenant_id, "run_id": run_id, "dataset_version_id": version_id}
         self.session.execute(insert(ChurnScore), [{**r, **fixed} for r in rows])
 
+    def _filtered(
+        self, run_id: uuid.UUID, risk_band: str | None, rank_band: str | None
+    ) -> Select[Any]:
+        stmt = self._select().where(ChurnScore.run_id == run_id)
+        if risk_band is not None:
+            stmt = stmt.where(ChurnScore.risk_band == risk_band)
+        if rank_band is not None:
+            stmt = stmt.where(ChurnScore.rank_band == rank_band)
+        return stmt
+
     def page(
         self,
         run_id: uuid.UUID,
         *,
         risk_band: str | None = None,
         rank_band: str | None = None,
+        sort: str = "probability",
+        descending: bool = True,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ChurnScore], int]:
-        """Return one page of a run's scores (highest estimated risk first) and the total."""
-        stmt = self._select().where(ChurnScore.run_id == run_id)
-        if risk_band is not None:
-            stmt = stmt.where(ChurnScore.risk_band == risk_band)
-        if rank_band is not None:
-            stmt = stmt.where(ChurnScore.rank_band == rank_band)
+        """Return one page of a run's scores (highest risk first by default) and the total."""
+        stmt = self._filtered(run_id, risk_band, rank_band)
         total = self.session.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-        rows = self.session.scalars(
-            stmt.order_by(ChurnScore.probability.desc(), ChurnScore.customer_key, ChurnScore.id)
-            .limit(limit)
-            .offset(offset)
-        )
+        ordered = _ordered(stmt, CHURN_SORTS[sort], descending, ChurnScore)
+        rows = self.session.scalars(ordered.limit(limit).offset(offset))
         return list(rows), int(total)
+
+    def stream(
+        self,
+        run_id: uuid.UUID,
+        *,
+        risk_band: str | None = None,
+        rank_band: str | None = None,
+        sort: str = "probability",
+        descending: bool = True,
+        cap: int,
+    ) -> Iterator[ChurnScore]:
+        """Yield up to `cap` scores in the page order, fetched in batches (for export)."""
+        stmt = _ordered(
+            self._filtered(run_id, risk_band, rank_band), CHURN_SORTS[sort], descending, ChurnScore
+        ).limit(cap)
+        yield from self.session.scalars(stmt.execution_options(yield_per=EXPORT_BATCH))
 
     def delete_for_version(self, version_id: uuid.UUID) -> None:
         """Remove every score of a version (a re-run replaces them)."""
