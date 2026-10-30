@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { getTranslations } from "next-intl/server";
+import { Suspense } from "react";
 
-import { ComingSoon } from "@/components/common/coming-soon";
+import { DashboardPage } from "@/components/dashboard/dashboard-page";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations("placeholder");
-  return { title: t("dashboard.title") };
+  const t = await getTranslations("dashboard");
+  return { title: t("title") };
 }
 
 export default function Page() {
-  return <ComingSoon section="dashboard" />;
+  return (
+    <Suspense>
+      <DashboardPage />
+    </Suspense>
+  );
 }

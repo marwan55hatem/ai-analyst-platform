@@ -102,7 +102,40 @@ Contrast was measured with a WCAG relative-luminance script. axe (`color-contras
 - **Analysis progress:** one row per module, in run order (waiting, running, done, skipped, failed). Skipped and failed rows show the backend's plain-language reason.
 - **Empty states:** say what the area is, why it is empty, and give one action. Sections that later steps will build (Dashboard, Insights, Ask the analyst, Reports) say so honestly and link back to Datasets.
 - **Errors:** every backend error `code` maps to a translated message that says what happened and what to do next. Errors don't apologise. Form errors are linked to their fields with `aria-describedby`/`aria-invalid`.
-- **Motion:** two moments only, the needle settling and a spinner while work runs. Everything else is instant, and `prefers-reduced-motion` disables both.
+- **Motion:** two moments only, the needle settling and a spinner while work runs. Sheets slide because that answers a user action. Everything else is instant, and `prefers-reduced-motion` disables all of it.
+
+## Charts
+
+The wrappers live in `frontend/src/components/charts`: `ChartFrame`, `LineBandChart`, `BarChart`, `Heatmap`, `Sparkline`, `RangeBar` and `SignedBars`. Only `LineBandChart` uses Recharts; the others are plain HTML and SVG, which keeps them light and makes RTL work without special cases.
+
+**Colour.** Colour follows the job it does, and `text` tokens carry every label.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `chart-1` to `chart-4` | #0089A0, #B86E00, #6A4FC4, #C93D70 | #00939A, #C98500, #8A74E0, #D9588A | Categorical slots, in this fixed order |
+| `chart-actual` | #0B5C63 | #5CC2BE | History lines, ranked bars, sparklines |
+| `chart-forecast` | #8A5A00 | #E8B547 | Forecast line and result ranges |
+| `chart-band-80`, `chart-band-95` | chart-2 at 26% / 12% | signal at 24% / 11% | Forecast ranges |
+| `seq-0` to `seq-4` | petrol ramp | petrol ramp, brighter is more | Heatmaps; each step has a `-fg` text colour that stays AA |
+
+The categorical slots pass the dataviz validator on `card` in both themes: lightness band, chroma, colour-blind separation and 3:1 contrast. Status colours (`good`, `warn`, `bad`) stay reserved for state and risk; they mark anomalies and churn bands, never a series. Impact badges are outlined and neutral, because a large effect is not always bad news.
+
+**Never colour alone.** Every chart has a second carrier:
+
+- `ChartFrame` has a "View as table" switch with the same numbers in a real table.
+- Line style separates series: solid for history, dashed for forecast, plus a legend.
+- Anomalies are triangles (▲ spike, ▼ drop) with a word in the legend and a list under the chart.
+- Bars print their value and share at the end of the row; ABC classes also differ by texture (solid, `pattern-hatch`, `pattern-dots`).
+- Heatmap cells print their count, and the heatmap is a table with row and column headers.
+- Ranges print low, expected and high under the bar.
+
+**Layout.** Each chart states one takeaway sentence and its unit above the plot. One axis only. Grid lines are quiet and horizontal. A sparkline is decorative (`aria-hidden`) because its card states the value and change in words.
+
+**RTL.** Time runs left to right in both languages, like the dial, so time axes, sparklines and range tracks sit in `dir="ltr"` containers. Everything around them mirrors. Ranked bars grow from the start edge.
+
+**Motion.** Chart animation is off, so a filter change redraws at once.
+
+**Comparisons.** Date presets count back from the last day in the data, because an upload is a snapshot. The default is the last 90 days. When the window before a range is not fully covered, the cards say there is nothing to compare and the reason appears once below them; no partial comparison is shown.
 
 ## Voice
 
@@ -111,5 +144,6 @@ Sentence case, plain verbs, the user's words ("Upload data", "Apply fixes", "Run
 ## Accessibility checks
 
 - **axe:** `e2e/a11y.spec.ts` runs axe (WCAG 2.2 A/AA) on every page in English and Arabic, light and dark, at 1440 and 375 px (80 page states). The same spec checks that nothing scrolls sideways at 375 px.
+- **Drawers:** sheets opened from a list row have no Radix Trigger, so they use `useReturnFocus` to send focus back to the row on close.
 - **Keyboard:** `e2e/keyboard.spec.ts` covers the journey with the keyboard only: skip link, menus, file picker, checkboxes, radio groups, the role dropdown (focus returns to it after saving) and sign-out.
 - **Lighthouse:** `npm run lighthouse` scores accessibility per page; the target is at least 90.

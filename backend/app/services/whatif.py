@@ -7,6 +7,8 @@ WHATIF_MAX_CONCURRENT requests per API process hold one at a time (others wait, 
 
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -33,6 +35,20 @@ def _semaphore() -> threading.BoundedSemaphore:
         return _slots
 
 
+@contextmanager
+def table_slot(busy_code: str = "what_if_busy") -> Iterator[None]:
+    """Hold one of the process-wide DuckDB table slots, or raise 409 after WAIT_SECONDS."""
+    slots = _semaphore()
+    if not slots.acquire(timeout=WAIT_SECONDS):
+        raise ConflictError(
+            "Too many analysis requests are running; try again in a moment.", code=busy_code
+        )
+    try:
+        yield
+    finally:
+        slots.release()
+
+
 NOTE = (
     "Every result is a range under its listed assumptions, estimated from past sales; it is not "
     "a promise of what will happen."
@@ -45,16 +61,8 @@ def run_what_if(
     """Compute every scenario of the request on one version of the caller's tenant."""
     require_profile(version)
     config = merged_config(db, tenant_id, version, {})
-    slots = _semaphore()
-    if not slots.acquire(timeout=WAIT_SECONDS):
-        raise ConflictError(
-            "Too many what-if requests are running; try again in a moment.", code="what_if_busy"
-        )
-    try:
-        with analysis_context(db, tenant_id, version, config) as ctx:
-            results = [run(ctx, Scenario(**s.model_dump())) for s in request.scenarios]
-    finally:
-        slots.release()
+    with table_slot(), analysis_context(db, tenant_id, version, config) as ctx:
+        results = [run(ctx, Scenario(**s.model_dump())) for s in request.scenarios]
     return {
         "dataset_id": version.dataset_id,
         "dataset_version_id": version.id,

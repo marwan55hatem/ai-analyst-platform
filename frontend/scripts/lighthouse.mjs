@@ -5,13 +5,19 @@
 import { chromium } from "@playwright/test";
 import lighthouse from "lighthouse";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const ROOT = path.resolve(import.meta.dirname, "..");
-const SAMPLE = path.join(ROOT, "..", "evaluation", "datasets", "samples", "retail_messy.csv");
+// Two years of daily sales from the e2e fixtures when present (npx playwright test makes it),
+// so the dashboard and insights pages are audited with real charts; else the small sample.
+const GROUND_TRUTH = path.join(os.tmpdir(), "analyst-e2e-fixtures", "ground_truth_en_anomalies_churn_elasticity_drivers.csv");
+const SAMPLE = existsSync(GROUND_TRUTH)
+  ? GROUND_TRUTH
+  : path.join(ROOT, "..", "evaluation", "datasets", "samples", "retail_messy.csv");
 const OUT = path.join(ROOT, ".lighthouse");
 
 async function api(pathname, init = {}) {
@@ -40,6 +46,12 @@ async function prepare() {
     if (d.latest_version?.profile_status === "ready") break;
     await new Promise((r) => setTimeout(r, 1000));
   }
+  // Wait for the automatic analysis so the insights pages have results to audit.
+  for (let i = 0; i < 300; i += 1) {
+    const runs = await api(`/api/v1/datasets/${dataset.id}/analysis-runs`, { headers: { Authorization: `Bearer ${token}` } });
+    if (runs[0] && !["pending", "running"].includes(runs[0].status)) break;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
   return { user, detail: `/datasets/${dataset.id}` };
 }
 
@@ -57,7 +69,8 @@ async function main() {
     await page.type('input[type="email"]', user.email);
     await page.type('input[autocomplete="current-password"]', user.password);
     await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('button[type="submit"]')]);
-    for (const url of ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/chat", "/reports", "/settings"]) {
+    const pages = ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/insights/forecast", "/insights/segments", "/insights/churn", "/insights/what-if", "/chat", "/reports", "/settings"];
+    for (const url of pages) {
       results.push(await audit(page, url, locale));
     }
     await context.close();

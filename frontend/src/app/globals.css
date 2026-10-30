@@ -40,6 +40,27 @@
   --sidebar-foreground: #16201f;
   --sidebar-border: #d3dcda;
   --shadow-pop: 0 8px 24px -8px rgb(22 32 31 / 0.18), 0 1px 2px rgb(22 32 31 / 0.08);
+  /* Charts (docs/design.md "Charts"): categorical slots validated for CVD on --card. */
+  --chart-1: #0089a0;
+  --chart-2: #b86e00;
+  --chart-3: #6a4fc4;
+  --chart-4: #c93d70;
+  --chart-actual: #0b5c63;
+  --chart-forecast: #8a5a00;
+  --chart-band-80: rgb(184 110 0 / 0.26);
+  --chart-band-95: rgb(184 110 0 / 0.12);
+  --chart-grid: #e3eae8;
+  /* Sequential petrol ramp for heatmaps; -fg is the text colour that stays AA on each step. */
+  --seq-0: #f5f7f6;
+  --seq-1: #d4e8e9;
+  --seq-2: #9ccbce;
+  --seq-3: #2a7a80;
+  --seq-4: #0b4f55;
+  --seq-0-fg: #4b5a58;
+  --seq-1-fg: #16201f;
+  --seq-2-fg: #16201f;
+  --seq-3-fg: #ffffff;
+  --seq-4-fg: #ffffff;
 }
 
 .dark {
@@ -75,6 +96,25 @@
   --sidebar-foreground: #e4ecea;
   --sidebar-border: #2c3d41;
   --shadow-pop: 0 12px 32px -12px rgb(0 0 0 / 0.6), 0 1px 2px rgb(0 0 0 / 0.4);
+  --chart-1: #00939a;
+  --chart-2: #c98500;
+  --chart-3: #8a74e0;
+  --chart-4: #d9588a;
+  --chart-actual: #5cc2be;
+  --chart-forecast: #e8b547;
+  --chart-band-80: rgb(232 181 71 / 0.24);
+  --chart-band-95: rgb(232 181 71 / 0.11);
+  --chart-grid: #23353a;
+  --seq-0: #152124;
+  --seq-1: #1d3a3c;
+  --seq-2: #24585a;
+  --seq-3: #4fa8a5;
+  --seq-4: #8fdad6;
+  --seq-0-fg: #9db0ad;
+  --seq-1-fg: #e4ecea;
+  --seq-2-fg: #e4ecea;
+  --seq-3-fg: #0d1517;
+  --seq-4-fg: #0d1517;
 }
 
 @theme inline {
@@ -109,6 +149,13 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-actual: var(--chart-actual);
+  --color-chart-forecast: var(--chart-forecast);
+  --color-chart-grid: var(--chart-grid);
 
   --font-sans: var(--font-plex), var(--font-plex-arabic), ui-sans-serif, system-ui, sans-serif;
 
@@ -187,4 +234,17 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Textures that separate groups without colour (bars, legend swatches); see docs/design.md. */
+.pattern-hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    currentColor 0 2px,
+    transparent 2px 6px
+  );
+}
+.pattern-dots {
+  background-image: radial-gradient(currentColor 1.2px, transparent 1.4px);
+  background-size: 5px 5px;
 }

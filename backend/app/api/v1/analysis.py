@@ -1,9 +1,9 @@
 """Analysis endpoints: capabilities, (re-)run, run status and insights."""
 
 import uuid
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession
@@ -21,7 +21,7 @@ from app.schemas.analysis import (
     InsightSummary,
     SegmentsOut,
 )
-from app.services import analysis, findings
+from app.services import analysis, exports, findings
 from app.services.profiling import service as profiling
 
 router = APIRouter(
@@ -30,6 +30,23 @@ router = APIRouter(
 )
 
 VersionNumber = Annotated[int | None, Query(ge=1, description="Dataset version (default current)")]
+SegmentSort = Literal["customer_key", "monetary", "frequency", "recency_days"]
+ChurnSort = Literal["probability", "revenue_at_stake", "expected_loss", "recency_days", "monetary"]
+Order = Literal["asc", "desc"]
+RiskBand = Literal["high", "medium", "low"]
+RankBand = Literal["top_10pct", "rest"]
+CSV: dict[int | str, dict[str, Any]] = {
+    200: {"content": {"text/csv": {}}, "description": "CSV file"}
+}
+
+
+def _csv(body: str, filename: str) -> Response:
+    """Return CSV text as a download."""
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get(
@@ -180,14 +197,52 @@ def get_segments(
     db: DbSession,
     segment: SegmentName | None = None,
     cluster: Annotated[int | None, Query(ge=0, le=20)] = None,
+    sort: SegmentSort = "customer_key",
+    order: Order = "asc",
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> SegmentsOut:
     """Return RFM segments, clusters and assignments of one run of the caller's tenant."""
     found = findings.segments_payload(
-        db, user.tenant_id, run_id, segment=segment, cluster=cluster, limit=limit, offset=offset
+        db,
+        user.tenant_id,
+        run_id,
+        segment=segment,
+        cluster=cluster,
+        sort=sort,
+        descending=order == "desc",
+        limit=limit,
+        offset=offset,
     )
     return SegmentsOut.model_validate(found)
+
+
+@router.get(
+    "/analysis-runs/{run_id}/segments.csv",
+    response_class=Response,
+    responses=CSV,
+    summary="Customer segment assignments of a run as CSV (same filters and sort as the page)",
+)
+def export_segments(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    segment: SegmentName | None = None,
+    cluster: Annotated[int | None, Query(ge=0, le=20)] = None,
+    sort: SegmentSort = "customer_key",
+    order: Order = "asc",
+) -> Response:
+    """Return the run's assignments as a CSV download (pseudonyms kept, formulas neutralised)."""
+    body = exports.segments_csv(
+        db,
+        user.tenant_id,
+        run_id,
+        segment=segment,
+        cluster=cluster,
+        sort=sort,
+        descending=order == "desc",
+    )
+    return _csv(body, f"segments-{run_id}.csv")
 
 
 @router.get(
@@ -199,22 +254,54 @@ def get_churn(
     run_id: uuid.UUID,
     user: CurrentUser,
     db: DbSession,
-    risk_band: Literal["high", "medium", "low"] | None = None,
-    rank_band: Literal["top_10pct", "rest"] | None = None,
+    risk_band: RiskBand | None = None,
+    rank_band: RankBand | None = None,
+    sort: ChurnSort = "probability",
+    order: Order = "desc",
     limit: Annotated[int, Query(ge=1, le=500)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> ChurnOut:
-    """Return the churn model summary and customers (highest estimated risk first)."""
+    """Return the churn model summary and customers (highest estimated risk first by default)."""
     found = findings.churn_payload(
         db,
         user.tenant_id,
         run_id,
         risk_band=risk_band,
         rank_band=rank_band,
+        sort=sort,
+        descending=order == "desc",
         limit=limit,
         offset=offset,
     )
     return ChurnOut.model_validate(found)
+
+
+@router.get(
+    "/analysis-runs/{run_id}/churn.csv",
+    response_class=Response,
+    responses=CSV,
+    summary="Per-customer churn risk of a run with the top 3 reasons as CSV",
+)
+def export_churn(
+    run_id: uuid.UUID,
+    user: CurrentUser,
+    db: DbSession,
+    risk_band: RiskBand | None = None,
+    rank_band: RankBand | None = None,
+    sort: ChurnSort = "probability",
+    order: Order = "desc",
+) -> Response:
+    """Return the run's churn scores as a CSV download (pseudonyms kept, formulas neutralised)."""
+    body = exports.churn_csv(
+        db,
+        user.tenant_id,
+        run_id,
+        risk_band=risk_band,
+        rank_band=rank_band,
+        sort=sort,
+        descending=order == "desc",
+    )
+    return _csv(body, f"churn-{run_id}.csv")
 
 
 @router.get(

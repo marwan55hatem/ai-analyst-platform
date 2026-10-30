@@ -53,9 +53,29 @@ export interface paths {
         };
         /**
          * Estimated churn risk of a run: model check, bands and a page of customers
-         * @description Return the churn model summary and customers (highest estimated risk first).
+         * @description Return the churn model summary and customers (highest estimated risk first by default).
          */
         get: operations["get_churn_api_v1_analysis_runs__run_id__churn_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-runs/{run_id}/churn.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-customer churn risk of a run with the top 3 reasons as CSV
+         * @description Return the run's churn scores as a CSV download (pseudonyms kept, formulas neutralised).
+         */
+        get: operations["export_churn_api_v1_analysis_runs__run_id__churn_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -136,6 +156,26 @@ export interface paths {
          * @description Return RFM segments, clusters and assignments of one run of the caller's tenant.
          */
         get: operations["get_segments_api_v1_analysis_runs__run_id__segments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/analysis-runs/{run_id}/segments.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Customer segment assignments of a run as CSV (same filters and sort as the page)
+         * @description Return the run's assignments as a CSV download (pseudonyms kept, formulas neutralised).
+         */
+        get: operations["export_segments_api_v1_analysis_runs__run_id__segments_csv_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -642,6 +682,26 @@ export interface paths {
          * @description Return sheet names read from the original workbook.
          */
         get: operations["list_sheets_api_v1_datasets__dataset_id__sheets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/{dataset_id}/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Headline KPIs for a date range vs the window before it, and a revenue series
+         * @description Aggregate the version's rows inside the range; the SQL is returned as evidence.
+         */
+        get: operations["get_time_series_api_v1_datasets__dataset_id__timeseries_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1425,6 +1485,16 @@ export interface components {
             warnings: string[] | null;
         };
         /**
+         * DateWindow
+         * @description An inclusive date range (ISO dates).
+         */
+        DateWindow: {
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
+        };
+        /**
          * DriversOut
          * @description A run's revenue drivers; they describe association, not proven cause.
          */
@@ -1472,6 +1542,22 @@ export interface components {
             details?: unknown;
             /** Message */
             message: string;
+        };
+        /**
+         * EvidenceOut
+         * @description The SQL behind the figures and the first rows of its result.
+         */
+        EvidenceOut: {
+            /** Columns */
+            columns: string[];
+            /** Purpose */
+            purpose: string;
+            /** Row Count */
+            row_count: number;
+            /** Rows */
+            rows: unknown[][];
+            /** Sql */
+            sql: string;
         };
         /**
          * FixChoice
@@ -1693,6 +1779,43 @@ export interface components {
             title: string;
             /** Type */
             type: string;
+        };
+        /**
+         * KpiOut
+         * @description One headline figure for the range and its change vs the window before it.
+         */
+        KpiOut: {
+            /**
+             * Available
+             * @description False when the file lacks the column this needs
+             */
+            available: boolean;
+            /**
+             * Change
+             * @description Relative change in percent, or percentage points for margin; null with a reason when there is nothing to compare with
+             */
+            change: number | null;
+            /**
+             * Change Unit
+             * @enum {string}
+             */
+            change_unit: "percent" | "points";
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "net_revenue" | "orders" | "aov" | "units" | "margin_pct";
+            /** Previous Value */
+            previous_value: number | null;
+            /** Reason */
+            reason: string | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "money" | "count" | "percent";
+            /** Value */
+            value: number | null;
         };
         /**
          * LoginRequest
@@ -1917,6 +2040,20 @@ export interface components {
             password: string;
         };
         /**
+         * RfmCellOut
+         * @description Customers in one recency x frequency score cell and their total spend.
+         */
+        RfmCellOut: {
+            /** Customers */
+            customers: number;
+            /** F Score */
+            f_score: number;
+            /** Monetary */
+            monetary: number;
+            /** R Score */
+            r_score: number;
+        };
+        /**
          * Role
          * @description Tenant-level roles, most to least privileged.
          * @enum {string}
@@ -2015,6 +2152,11 @@ export interface components {
             /** Pseudonymized Customer Ids */
             pseudonymized_customer_ids: boolean;
             /**
+             * Rfm Grid
+             * @description Customers and total spend per recency x frequency score cell (1-5 each)
+             */
+            rfm_grid: components["schemas"]["RfmCellOut"][];
+            /**
              * Run Id
              * Format: uuid
              */
@@ -2036,6 +2178,31 @@ export interface components {
             status: string;
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * SeriesPoint
+         * @description One period of the series; periods without rows are zero.
+         */
+        SeriesPoint: {
+            /** Aov */
+            aov: number | null;
+            /** Margin Pct */
+            margin_pct: number | null;
+            /** Net Revenue */
+            net_revenue: number;
+            /** Orders */
+            orders: number;
+            /**
+             * Partial
+             * @description The period is only partly inside the selected range
+             */
+            partial: boolean;
+            /** Period */
+            period: string;
+            /** Rows */
+            rows: number;
+            /** Units */
+            units: number | null;
         };
         /**
          * SheetsOut
@@ -2062,6 +2229,51 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /**
+         * TimeSeriesOut
+         * @description KPIs, comparison window and series for one dataset version and date range.
+         */
+        TimeSeriesOut: {
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
+            /** Currency */
+            currency: string | null;
+            data_range: components["schemas"]["DateWindow"];
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /**
+             * Dataset Version Id
+             * Format: uuid
+             */
+            dataset_version_id: string;
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceOut"][];
+            /**
+             * Grain
+             * @enum {string}
+             */
+            grain: "day" | "week" | "month";
+            /** Kpis */
+            kpis: components["schemas"]["KpiOut"][];
+            /** Method */
+            method: string;
+            previous_range: components["schemas"]["DateWindow"];
+            range: components["schemas"]["DateWindow"];
+            /** Sample Size */
+            sample_size: number;
+            /** Series */
+            series: components["schemas"]["SeriesPoint"][];
+            /** Version */
+            version: number;
+            /** Warnings */
+            warnings: string[];
         };
         /**
          * TokenResponse
@@ -2276,6 +2488,8 @@ export interface operations {
             query?: {
                 risk_band?: ("high" | "medium" | "low") | null;
                 rank_band?: ("top_10pct" | "rest") | null;
+                sort?: "probability" | "revenue_at_stake" | "expected_loss" | "recency_days" | "monetary";
+                order?: "asc" | "desc";
                 limit?: number;
                 offset?: number;
             };
@@ -2294,6 +2508,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChurnOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_churn_api_v1_analysis_runs__run_id__churn_csv_get: {
+        parameters: {
+            query?: {
+                risk_band?: ("high" | "medium" | "low") | null;
+                rank_band?: ("top_10pct" | "rest") | null;
+                sort?: "probability" | "revenue_at_stake" | "expected_loss" | "recency_days" | "monetary";
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
             /** @description Unauthorized */
@@ -2484,6 +2752,8 @@ export interface operations {
             query?: {
                 segment?: ("Champions" | "Loyal" | "Potential loyalists" | "New" | "At risk" | "Hibernating" | "Lost") | null;
                 cluster?: number | null;
+                sort?: "customer_key" | "monetary" | "frequency" | "recency_days";
+                order?: "asc" | "desc";
                 limit?: number;
                 offset?: number;
             };
@@ -2502,6 +2772,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SegmentsOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_segments_api_v1_analysis_runs__run_id__segments_csv_get: {
+        parameters: {
+            query?: {
+                segment?: ("Champions" | "Loyal" | "Potential loyalists" | "New" | "At risk" | "Hibernating" | "Lost") | null;
+                cluster?: number | null;
+                sort?: "customer_key" | "monetary" | "frequency" | "recency_days";
+                order?: "asc" | "desc";
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
                 };
             };
             /** @description Unauthorized */
@@ -4109,6 +4433,71 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_time_series_api_v1_datasets__dataset_id__timeseries_get: {
+        parameters: {
+            query?: {
+                version?: number | null;
+                /** @description Inclusive date (default: the edge of the data) */
+                start?: string | null;
+                /** @description Inclusive date (default: the edge of the data) */
+                end?: string | null;
+                grain?: "day" | "week" | "month";
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimeSeriesOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

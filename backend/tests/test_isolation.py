@@ -42,8 +42,11 @@ ANALYSIS_ROUTES = {
     ("GET", "/api/v1/analysis-runs/{run_id}/insights"),
     ("GET", "/api/v1/analysis-runs/{run_id}/anomalies"),
     ("GET", "/api/v1/analysis-runs/{run_id}/segments"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/segments.csv"),
     ("GET", "/api/v1/analysis-runs/{run_id}/churn"),
+    ("GET", "/api/v1/analysis-runs/{run_id}/churn.csv"),
     ("GET", "/api/v1/analysis-runs/{run_id}/drivers"),
+    ("GET", "/api/v1/datasets/{dataset_id}/timeseries"),
     ("POST", "/api/v1/datasets/{dataset_id}/what-if"),
     ("GET", "/api/v1/insights/{insight_id}"),
 }

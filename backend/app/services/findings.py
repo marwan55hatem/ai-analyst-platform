@@ -87,6 +87,8 @@ def segments_payload(
     *,
     segment: str | None,
     cluster: int | None,
+    sort: str = "customer_key",
+    descending: bool = False,
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
@@ -96,8 +98,15 @@ def segments_payload(
     insights = _module_insights(db, tenant_id, run.id, SEGMENT_MODULE)
     rfm = next((i.payload for i in insights if i.type == "rfm_segments"), {})
     groups = next((i.payload for i in insights if i.type == "customer_clusters"), {})
-    items, total = SegmentAssignmentRepository(db, tenant_id).page(
-        run.id, segment=segment, cluster=cluster, limit=limit, offset=offset
+    assignments = SegmentAssignmentRepository(db, tenant_id)
+    items, total = assignments.page(
+        run.id,
+        segment=segment,
+        cluster=cluster,
+        sort=sort,
+        descending=descending,
+        limit=limit,
+        offset=offset,
     )
     return {
         "run_id": run.id,
@@ -110,6 +119,7 @@ def segments_payload(
         "clusters": groups.get("clusters", []),
         "k": groups.get("k"),
         "stability": groups.get("stability"),
+        "rfm_grid": assignments.grid(run.id),
         "assignments": {"items": items, "total": total, "limit": limit, "offset": offset},
         "insights": insights,
     }
@@ -122,6 +132,8 @@ def churn_payload(
     *,
     risk_band: str | None,
     rank_band: str | None,
+    sort: str = "probability",
+    descending: bool = True,
     limit: int,
     offset: int,
 ) -> dict[str, Any]:
@@ -132,7 +144,13 @@ def churn_payload(
     risk = next((i.payload for i in insights if i.type == "churn_risk"), {})
     model = next((i.payload for i in insights if i.type == "churn_model"), {})
     items, total = ChurnScoreRepository(db, tenant_id).page(
-        run.id, risk_band=risk_band, rank_band=rank_band, limit=limit, offset=offset
+        run.id,
+        risk_band=risk_band,
+        rank_band=rank_band,
+        sort=sort,
+        descending=descending,
+        limit=limit,
+        offset=offset,
     )
     return {
         "run_id": run.id,
