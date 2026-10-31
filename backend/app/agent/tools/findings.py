@@ -6,7 +6,15 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from app.agent.tools.base import AgentContext, Tool, ToolArgs, ToolResult
+from app.agent.tools.base import (
+    ENVELOPE_CHARS,
+    AgentContext,
+    Tool,
+    ToolArgs,
+    ToolResult,
+    content_size,
+    fit_rows,
+)
 from app.core.errors import AppError
 from app.db.repository import AnalysisRunRepository, InsightRepository, ModelRunRepository
 from app.models.analysis import AnalysisRun, Insight
@@ -20,6 +28,9 @@ from app.services.whatif import run_what_if
 FORECAST_WAIT_S = 60.0
 FORECAST_POLL_S = 1.0
 PAYLOAD_CHARS = 1_500
+BRIEF_KEYS = ("module", "type", "title", "summary", "confidence", "sample_size")
+TITLE_KEYS = ("type", "title", "confidence", "sample_size")
+SHORTENED_NOTE = "Shortened to show every insight; call again with `type` for one type's detail."
 ITEM_SCHEMAS: dict[str, Any] = {"customers": ChurnScoreOut, "assignments": SegmentAssignmentOut}
 DROPPED_KEYS = {"evidence", "mlflow", "resources", "seed", "scores", "skipped_models"}
 
@@ -33,7 +44,7 @@ class InsightArgs(ToolArgs):
 
     type: str | None = Field(default=None, max_length=50, description="Insight type filter.")
     module: str | None = Field(default=None, max_length=50, description="Module filter.")
-    limit: int = Field(default=10, ge=1, le=20)
+    limit: int = Field(default=20, ge=1, le=20)
 
 
 class ForecastArgs(ToolArgs):
@@ -96,6 +107,21 @@ def _insight(insight: Insight) -> dict[str, Any]:
     }
 
 
+def fit_insights(views: list[dict[str, Any]], limit: int) -> tuple[list[dict[str, Any]], bool]:
+    """Shrink insights to fit `limit` characters; return them and whether they were shortened.
+
+    Cutting the list at the character cap would hide whatever ranks last, so every insight stays
+    and loses detail instead: first its payload, then its summary.
+    """
+    room = limit - ENVELOPE_CHARS
+    if content_size(views) <= room:
+        return views, False
+    brief = [{k: view[k] for k in BRIEF_KEYS} for view in views]
+    if content_size(brief) <= room:
+        return brief, True
+    return [{k: view[k] for k in TITLE_KEYS} for view in views], True
+
+
 def _insight_evidence(insights: list[Insight]) -> list[dict[str, Any]]:
     return [{"insight_id": str(i.id), "type": i.type, "evidence": i.evidence} for i in insights]
 
@@ -108,11 +134,16 @@ def get_insights(ctx: AgentContext, args: InsightArgs) -> ToolResult:
     insights = InsightRepository(ctx.db, ctx.tenant_id).for_run(
         run.id, type=args.type, module=args.module, limit=args.limit
     )
-    content = {
+    views, shortened = fit_insights(
+        [_insight(i) for i in insights], ctx.settings.agent_tool_output_chars
+    )
+    content: dict[str, Any] = {
         "run_id": str(run.id),
         "run_status": run.status,
-        "insights": [_insight(i) for i in insights],
+        "insights": views,
     }
+    if shortened:
+        content["note"] = SHORTENED_NOTE
     return ToolResult(
         ok=True,
         content=content,
@@ -142,6 +173,7 @@ def get_forecast(ctx: AgentContext, args: ForecastArgs) -> ToolResult:
             ],
             "stored analysis run",
             _insight_evidence(stored),
+            ctx.settings.agent_tool_output_chars,
         )
     return _custom_forecast(ctx, args)
 
@@ -177,7 +209,10 @@ def _custom_forecast(ctx: AgentContext, args: ForecastArgs) -> ToolResult:
         for i in items
     ]
     return _forecast_result(
-        views, f"forecast job {current.id}", [{"model_run_id": str(current.id)}]
+        views,
+        f"forecast job {current.id}",
+        [{"model_run_id": str(current.id)}],
+        ctx.settings.agent_tool_output_chars,
     )
 
 
@@ -202,11 +237,16 @@ def _forecast_view(
 
 
 def _forecast_result(
-    views: list[dict[str, Any]], source: str, evidence: list[dict[str, Any]]
+    views: list[dict[str, Any]], source: str, evidence: list[dict[str, Any]], limit: int
 ) -> ToolResult:
+    shown = list(views)  # the total comes first, so it is the last series to be dropped
+    content = {"source": source, "interval_levels_pct": [80, 95], "forecasts": shown}
+    cut = fit_rows(content, shown, limit)
+    if cut:
+        content["note"] = cut
     return ToolResult(
         ok=True,
-        content={"source": source, "interval_levels_pct": [80, 95], "forecasts": views},
+        content=content,
         evidence={"source": source, "items": evidence, "forecasts": views},
         summary=f"{len(views)} forecast series from the {source}",
     )
@@ -234,12 +274,47 @@ def _stored_findings(
     ]
     if payload.get("module_status") not in (None, "completed", "ok"):
         content["note"] = payload.get("skipped_reason") or "the module did not complete"
+    content = json.loads(json.dumps(content, default=str))
+    limit = ctx.settings.agent_tool_output_chars
+    if content_size(content) > limit - ENVELOPE_CHARS:
+        compact_findings(content)
+    rows = _row_list(content)
+    if rows:
+        cut = fit_rows(content, rows, limit)
+        if cut:
+            content["rows_note"] = cut
     return ToolResult(
         ok=True,
-        content=json.loads(json.dumps(content, default=str)),
+        content=content,
         evidence={"run_id": str(run.id), "insights": _insight_evidence(insights)},
         summary=f"{len(insights)} insights",
     )
+
+
+def compact_findings(content: dict[str, Any]) -> None:
+    """Keep what the model can use from an oversized result, so more customers fit.
+
+    Reasons stay as their sentence (which holds the numbers); SHAP values are for the evidence.
+    """
+    content["insights"] = [
+        {"title": i["title"], "confidence": i["confidence"]} for i in content.get("insights", [])
+    ]
+    if isinstance(content.get("importance"), list):
+        content["importance"] = content["importance"][:3]
+    for row in _row_list(content) or []:
+        if isinstance(row, dict) and isinstance(row.get("reasons"), list):
+            row["reasons"] = [r["text"] for r in row["reasons"] if isinstance(r, dict)]
+
+
+def _row_list(content: dict[str, Any]) -> list[Any] | None:
+    """Return the list of per-customer or per-event rows in a findings result, if there is one."""
+    for key in ITEM_SCHEMAS:
+        block = content.get(key)
+        if isinstance(block, dict) and isinstance(block.get("items"), list):
+            items: list[Any] = block["items"]
+            return items
+    events = content.get("events")
+    return events if isinstance(events, list) else None
 
 
 def get_anomalies(ctx: AgentContext, _: NoArgs) -> ToolResult:
@@ -340,8 +415,11 @@ def what_if(ctx: AgentContext, args: WhatIfArgs) -> ToolResult:
 TOOLS = [
     Tool(
         "get_insights",
-        "Stored insights of the latest analysis run (KPIs, trend, seasonality, Pareto, cohorts, "
-        "forecasts, anomalies, segments, churn, drivers), highest impact first.",
+        "Stored insights of the latest analysis run, highest impact first; many at once come back "
+        "shortened. Filter by `type` for full detail: kpi_summary, growth, returns, pareto, "
+        "dead_stock, seasonality, weekday_pattern, growth_extremes, ytd_vs_prior_year, "
+        "cohort_retention, forecast_total, forecast_group, anomaly, rfm_segments, "
+        "customer_clusters, churn_risk, revenue_drivers.",
         InsightArgs,
         get_insights,
     ),

@@ -102,7 +102,15 @@ class Completion:
     finish_reason: str | None = None
 
 
-LLMEvent = TextDelta | Completion
+@dataclass(frozen=True)
+class RateLimitWait:
+    """The provider asked us to wait before retrying; `first` marks the start of the wait."""
+
+    retry_in_s: int
+    first: bool = True
+
+
+LLMEvent = TextDelta | Completion | RateLimitWait
 
 
 def estimate_tokens(text: str) -> int:

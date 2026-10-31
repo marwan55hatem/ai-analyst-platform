@@ -13,7 +13,7 @@ from app.agent.query_shape import (
     has_oversized_name,
     makes_dynamic_column_names,
 )
-from app.agent.tools.base import AgentContext, Tool, ToolArgs, ToolResult
+from app.agent.tools.base import AgentContext, Tool, ToolArgs, ToolResult, fit_rows
 from app.core.errors import AppError
 from app.db.repository import ColumnProfileRepository
 from app.services.analysis import capabilities_payload
@@ -121,6 +121,9 @@ def run_sql(ctx: AgentContext, args: SqlArgs) -> ToolResult:
     }
     if len(result.rows) > len(shown):
         content["note"] = f"only the first {len(shown)} of {len(result.rows)} rows are shown"
+    cut = fit_rows(content, shown, ctx.settings.agent_tool_output_chars)
+    if cut:
+        content["note"] = cut
     evidence = {
         "sql": args.sql,
         "columns": result.columns,

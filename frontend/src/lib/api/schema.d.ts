@@ -3080,7 +3080,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Events: token, tool_call, tool_result, chart, caveat, final, error */
+            /** @description Events: token, tool_call, tool_result, chart, caveat, status, final, error */
             200: {
                 headers: {
                     [name: string]: unknown;

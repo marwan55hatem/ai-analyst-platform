@@ -1,11 +1,41 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Values a provider needs unless set explicitly. Groq's free tier allows 8,000 tokens per minute on
+# this model, measured from its x-ratelimit headers; the size limits below keep one turn inside it.
+_DEEPSEEK = {
+    "llm_base_url": "https://api.deepseek.com",
+    "llm_model": "deepseek-flash",
+    "llm_model_strong": "deepseek-v4-pro",
+}
+PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
+    "deepseek": _DEEPSEEK,
+    "openai_compatible": _DEEPSEEK,
+    "groq": {
+        "llm_base_url": "https://api.groq.com/openai/v1",
+        "llm_model": "openai/gpt-oss-120b",
+        "llm_model_strong": "openai/gpt-oss-120b",
+        "llm_max_output_tokens": 3000,
+        "llm_max_prompt_tokens": 5000,
+        "agent_tool_output_chars": 5000,
+        "llm_price_input_per_m": 0.15,
+        "llm_price_cached_input_per_m": 0.075,
+        "llm_price_output_per_m": 0.60,
+        "llm_price_strong_input_per_m": 0.15,
+        "llm_price_strong_cached_input_per_m": 0.075,
+        "llm_price_strong_output_per_m": 0.60,
+    },
+}
+# Compose passes unset variables as empty strings, which a number field cannot parse.
+_NUMBER_KEYS = frozenset(
+    key for key, value in PROVIDER_PRESETS["groq"].items() if isinstance(value, int | float)
+)
 
 
 class Settings(BaseSettings):
@@ -24,12 +54,15 @@ class Settings(BaseSettings):
     llm_provider: str = "none"
     llm_base_url: str = "https://api.deepseek.com"
     llm_api_key: str = Field(default="", repr=False)
+    groq_api_key: str = Field(default="", repr=False)
     llm_model: str = "deepseek-flash"
     llm_model_strong: str = "deepseek-v4-pro"
     llm_thinking: Literal["enabled", "disabled"] = "enabled"
+    llm_reasoning_effort: Literal["low", "medium", "high"] = "medium"
     llm_timeout_s: float = 120.0
     llm_max_retries: int = Field(default=3, ge=0, le=6)
     llm_max_output_tokens: int = Field(default=4096, ge=256, le=65_536)
+    llm_max_prompt_tokens: int = Field(default=0, ge=0)
     llm_price_input_per_m: float = 0.44
     llm_price_cached_input_per_m: float = 0.014
     llm_price_output_per_m: float = 1.32
@@ -84,6 +117,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cookie_secure: bool = True
     rate_limit_enabled: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_provider_preset(cls, data: Any) -> Any:
+        """Fill provider values that are unset; compose passes those as empty strings."""
+        if not isinstance(data, dict):
+            return data
+        preset = PROVIDER_PRESETS.get(str(data.get("llm_provider") or "").lower(), {})
+        unset = preset.keys() | _NUMBER_KEYS
+        explicit = {k: v for k, v in data.items() if not (k in unset and v == "")}
+        return {**preset, **explicit}
 
     def ensure_production_safe(self) -> None:
         """Refuse to run with the placeholder or a short JWT secret."""

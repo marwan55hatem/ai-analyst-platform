@@ -25,7 +25,8 @@ from app.schemas.agent import (
 )
 
 router = APIRouter(tags=["chat"], responses={**responses.UNAUTHORIZED})
-SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+# no-transform stops the Next.js proxy's compression, which otherwise holds the whole stream back.
+SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
 
 
 # -- company profile ------------------------------------------------------------------------------
@@ -183,7 +184,9 @@ def list_messages(
         **responses.RATE_LIMITED,
         200: {
             "content": {"text/event-stream": {}},
-            "description": "Events: token, tool_call, tool_result, chart, caveat, final, error",
+            "description": (
+                "Events: token, tool_call, tool_result, chart, caveat, status, final, error"
+            ),
         },
     },
     response_class=StreamingResponse,

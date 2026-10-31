@@ -1,4 +1,4 @@
-"""Live tests against the real provider (DeepSeek). Never run in CI.
+"""Live tests against the real provider (Groq, or DeepSeek without a Groq key). Never run in CI.
 
 Skipped unless RUN_LIVE_LLM=1. The API key is read from the repository's .env file (the test suite
 otherwise forces LLM_PROVIDER=fake and an empty key) and is never printed. Run with:
@@ -7,6 +7,8 @@ otherwise forces LLM_PROVIDER=fake and an empty key) and is never printed. Run w
 """
 
 import os
+import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,11 +18,13 @@ from fastapi.testclient import TestClient
 
 from app.agent.service import ChatSession
 from app.agent.verifier import extract_numbers
-from app.core.config import Settings, get_settings
+from app.core.config import Settings
 from app.db.repository import UserRepository
 from app.db.session import get_sessionmaker
+from app.llm import build_real_client
+from app.llm.base import LLMAuthError
 from app.llm.openai_compatible import OpenAICompatibleClient
-from app.llm.types import ChatMessage, Completion, ToolSpec
+from app.llm.types import ChatMessage, Completion, TextDelta, ToolSpec
 from tests.agent_helpers import conversation
 from tests.dataset_helpers import upload_ready
 from tests.ground_truth_fixtures import generator
@@ -33,33 +37,72 @@ pytestmark = [
     ),
 ]
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+PACE_S = 20.0  # questions at this pace stay inside Groq's 8,000 tokens per minute
 
 
-def live_settings() -> Settings:
-    """Settings from the repository .env (process overrides from conftest are bypassed)."""
+def env_values() -> dict[str, str]:
+    """Return the repository .env; `LLM_MODEL` there may belong to another provider."""
     values: dict[str, str] = {}
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
         if "=" in line and not line.lstrip().startswith("#"):
             key, _, value = line.partition("=")
             values[key.strip().lower()] = value.strip().strip('"').strip("'")
+    return values
+
+
+def live_settings() -> Settings:
+    """Settings for the real provider (process overrides from conftest are bypassed)."""
+    values = env_values()
+    if values.get("groq_api_key"):
+        return Settings(
+            _env_file=None,  # type: ignore[call-arg]
+            llm_provider="groq",
+            groq_api_key=values["groq_api_key"],
+            llm_base_url="",
+        )
     keep = {k: v for k, v in values.items() if k.startswith(("llm_", "agent_"))}
     if not keep.get("llm_api_key"):
-        pytest.skip("LLM_API_KEY is not set in .env")
-    return get_settings().model_copy(update={**keep, "llm_provider": "deepseek"})
+        pytest.skip("neither GROQ_API_KEY nor LLM_API_KEY is set in .env")
+    return Settings(_env_file=None, **{**keep, "llm_provider": "deepseek"})  # type: ignore[arg-type]
 
 
 def live_client(settings: Settings) -> OpenAICompatibleClient:
-    return OpenAICompatibleClient(
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        thinking=settings.llm_thinking == "enabled",
-        timeout_s=settings.llm_timeout_s,
-        max_retries=settings.llm_max_retries,
-        max_output_tokens=settings.llm_max_output_tokens,
-    )
+    return build_real_client(settings)
 
 
-def test_live_tool_call_round_trip_with_reasoning_replay() -> None:
+def test_live_streams_text_and_reports_usage() -> None:
+    settings = live_settings()
+    client = live_client(settings)
+    messages = [ChatMessage("user", "Reply with one short sentence about sales.")]
+    events = list(client.chat(messages, [], model=settings.llm_model))
+    done = events[-1]
+    assert isinstance(done, Completion) and done.usage.prompt_tokens > 0
+    assert done.text and done.text == "".join(e.text for e in events if isinstance(e, TextDelta))
+    client.close()
+
+
+def test_live_replies_in_arabic() -> None:
+    settings = live_settings()
+    client = live_client(settings)
+    messages = [
+        ChatMessage("system", "Reply in the user's language."),
+        ChatMessage("user", "ما هي عاصمة مصر؟ أجب بجملة واحدة."),
+    ]
+    done = list(client.chat(messages, [], model=settings.llm_model))[-1]
+    assert isinstance(done, Completion) and re.search(r"[؀-ۿ]", done.text)
+    client.close()
+
+
+def test_live_bad_key_is_a_typed_error() -> None:
+    settings = live_settings()
+    wrong = {"groq_api_key": "wrong-key", "llm_api_key": "wrong-key"}
+    client = live_client(settings.model_copy(update=wrong))
+    with pytest.raises(LLMAuthError):
+        list(client.chat([ChatMessage("user", "hi")], [], model=settings.llm_model))
+    client.close()
+
+
+def test_live_tool_call_round_trip() -> None:
     settings = live_settings()
     client = live_client(settings)
     tool = ToolSpec(
@@ -132,6 +175,7 @@ def test_live_ten_questions_match_ground_truth(client: TestClient, tmp_path: Pat
     llm = live_client(settings)
     report: list[tuple[str, bool, int]] = []
     for question, expected in _expected(facts):
+        time.sleep(PACE_S)
         session = ChatSession(
             user, uuid.UUID(conversation_id), question, settings=settings, llm=llm
         )

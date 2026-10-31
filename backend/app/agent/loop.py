@@ -15,6 +15,7 @@ import structlog
 
 from app.agent import events
 from app.agent.budget import BudgetExceededError, TokenBudget
+from app.agent.context import is_replayable, prompt_estimate, shrink_tool_results
 from app.agent.events import AgentEvent
 from app.agent.tools import (
     TOOLS_BY_NAME,
@@ -27,9 +28,18 @@ from app.agent.tools import (
 from app.agent.untrusted import find_injection, wrap_tool_output
 from app.agent.verifier import caveat_text, untraced_numbers
 from app.core.config import Settings
-from app.llm.base import LLMClient, LLMError
+from app.llm.base import LLMClient, LLMError, LLMRequestTooLargeError, LLMToolCallError
 from app.llm.pricing import approximate_cost_usd
-from app.llm.types import ChatMessage, Completion, TextDelta, ToolCall, Usage, estimate_tokens
+from app.llm.types import (
+    ChatMessage,
+    Completion,
+    RateLimitWait,
+    TextDelta,
+    ToolCall,
+    ToolSpec,
+    Usage,
+    estimate_tokens,
+)
 
 logger = structlog.get_logger()
 
@@ -38,6 +48,17 @@ FINAL_ROUND_NOTE = (
     "or say what could not be determined. Do not request more tools."
 )
 EMPTY_ANSWER = "The model returned no answer. Please rephrase the question."
+OUT_OF_TOKENS_ANSWER = (
+    "The model ran out of output tokens before it could answer. Please ask something narrower."
+)
+TRUNCATED_CAVEAT = "This answer was cut off at the model's output limit, so it may be incomplete."
+REPAIR_NOTE = (
+    "Your last tool call was invalid. Call one of the listed tools by its exact name with valid "
+    "JSON arguments, or answer without a tool."
+)
+BAD_CALL_NOTE = "A tool call was dropped: '{name}' is not usable. Valid tools: {tools}."
+OLDER_RESULT_CHARS = 1_500
+RETRY_RESULT_CHARS = 1_000
 
 
 @dataclass
@@ -70,6 +91,7 @@ class TurnOutcome:
     cost: Decimal = Decimal(0)
     error: str | None = None
     tool_calls: int = 0
+    truncated: bool = False
 
 
 class AgentLoop:
@@ -95,6 +117,8 @@ class AgentLoop:
         self.tools = tools if tools is not None else tuple(TOOLS_BY_NAME.values())
         self.scripted = scripted
         self.outcome = TurnOutcome()
+        self._repaired = False
+        self._trimmed = False
 
     def run(self, system: str, history: list[ChatMessage], question: str) -> Iterator[AgentEvent]:
         """Yield the events of one question; `self.outcome` holds what to persist."""
@@ -103,6 +127,7 @@ class AgentLoop:
         by_name = {tool.name: tool for tool in self.tools}
         seen_results: list[Any] = []
         limit = self.settings.agent_max_iterations
+        bad_rounds = 0
         for iteration in range(limit + 1):
             last_round = iteration == limit
             if last_round:
@@ -111,8 +136,13 @@ class AgentLoop:
             if completion is None:
                 return
             if not completion.tool_calls or last_round:
-                self.outcome.final_text = completion.text.strip() or EMPTY_ANSWER
+                self.outcome.final_text = _answer_text(completion)
                 break
+            bad_calls = [c for c in completion.tool_calls if not is_replayable(c, by_name)]
+            bad_rounds = bad_rounds + 1 if bad_calls else 0
+            if bad_rounds >= 2:  # the tool error of the first bad round was the repair message
+                yield from self._fail(LLMToolCallError())
+                return
             for call in completion.tool_calls:
                 result = yield from self._tool_call(call, by_name)
                 seen_results.append(result.content)
@@ -130,12 +160,29 @@ class AgentLoop:
                         caveats=result.caveats,
                     )
                 )
+            _forget_bad_calls(messages, bad_calls, sorted(by_name))
         yield from self._finish(seen_results, question)
 
+    def _fit_prompt(self, messages: list[ChatMessage], specs: list[ToolSpec]) -> None:
+        """Trim older tool results, then all of them, when the prompt is over the limit."""
+        limit = self.settings.llm_max_prompt_tokens
+        if not limit or prompt_estimate(messages, specs) <= limit:
+            return
+        shrink_tool_results(messages, OLDER_RESULT_CHARS, spare_last=_latest_results(messages))
+        if prompt_estimate(messages, specs) > limit:
+            shrink_tool_results(messages, OLDER_RESULT_CHARS)
+        logger.info("agent_prompt_trimmed", tokens=prompt_estimate(messages, specs), limit=limit)
+
     def _model_turn(
-        self, messages: list[ChatMessage], specs: list[Any]
+        self, messages: list[ChatMessage], specs: list[ToolSpec]
     ) -> Generator[AgentEvent, None, Completion | None]:
-        """Reserve budget, stream one model turn, record it; return the Completion or None."""
+        """Reserve budget, stream one model turn, record it; return the Completion or None.
+
+        A rejected tool call or an oversized prompt gets one retry, unless answer text has already
+        reached the user: that text cannot be taken back.
+        """
+        self._fit_prompt(messages, specs)
+        logger.info("agent_prompt_size", tokens=prompt_estimate(messages, specs))
         estimate = sum(
             estimate_tokens(m.content) + estimate_tokens(m.reasoning or "") for m in messages
         )
@@ -150,18 +197,42 @@ class AgentLoop:
             yield events.error(exc.code, exc.message)
             return None
         completion: Completion | None = None
+        shown = False
         try:
             for event in self.llm.chat(messages, specs, model=self.model):
                 if isinstance(event, TextDelta):
                     if event.text:
+                        shown = True
                         yield events.token(event.text)
+                elif isinstance(event, RateLimitWait):
+                    yield (
+                        events.rate_limited(event.retry_in_s) if event.first else events.keepalive()
+                    )
                 else:
                     completion = event
+        except LLMToolCallError as exc:
+            self.budget.settle(reserved, 0)
+            if shown or self._repaired:
+                yield from self._fail(exc)
+                return None
+            self._repaired = True
+            logger.warning("agent_tool_call_repair", code=exc.code)
+            note = ChatMessage("system", REPAIR_NOTE)
+            messages.append(note)
+            repaired = yield from self._model_turn(messages, specs)
+            messages.remove(note)
+            return repaired
+        except LLMRequestTooLargeError as exc:
+            self.budget.settle(reserved, 0)
+            if shown or self._trimmed:
+                yield from self._fail(exc)
+                return None
+            self._trimmed = True
+            shrink_tool_results(messages, RETRY_RESULT_CHARS)
+            return (yield from self._model_turn(messages, specs))
         except LLMError as exc:
             self.budget.settle(reserved, 0)
-            self.outcome.error = exc.code
-            logger.warning("agent_llm_error", code=exc.code)
-            yield events.error(exc.code, exc.user_message)
+            yield from self._fail(exc)
             return None
         except Exception:
             self.budget.settle(reserved, 0)
@@ -171,7 +242,9 @@ class AgentLoop:
             self.outcome.error = "provider_error"
             yield events.error("provider_error", "The model stream ended without a result.")
             return None
-        self.budget.settle(reserved, completion.usage.total_tokens)
+        # A provider that reports no usage is charged the reservation, never nothing.
+        self.budget.settle(reserved, completion.usage.total_tokens or reserved)
+        self.outcome.truncated = completion.finish_reason == "length" and bool(completion.text)
         cost = Decimal(str(approximate_cost_usd(completion.usage, completion.model, self.settings)))
         self.outcome.tokens_in += completion.usage.prompt_tokens
         self.outcome.tokens_out += completion.usage.completion_tokens
@@ -200,6 +273,14 @@ class AgentLoop:
             )
         )
         return completion
+
+    def _fail(self, exc: LLMError) -> Iterator[AgentEvent]:
+        """Record a provider failure and emit it as the terminal error event."""
+        self.outcome.error = exc.code
+        logger.warning("agent_llm_error", code=exc.code)
+        retry_after = getattr(exc, "retry_after_s", None)
+        extra = {} if retry_after is None else {"retry_after_s": retry_after}
+        yield events.error(exc.code, exc.user_message, **extra)
 
     def _tool_call(
         self, call: ToolCall, by_name: dict[str, Tool]
@@ -265,6 +346,10 @@ class AgentLoop:
             caveats.append({"kind": "untraced_numbers", "message": message, "numbers": untraced})
             yield events.caveat("untraced_numbers", message, numbers=untraced)
             text = f"{text}\n\n_{message}_"
+        if self.outcome.truncated:
+            caveats.append({"kind": "answer_truncated", "message": TRUNCATED_CAVEAT})
+            yield events.caveat("answer_truncated", TRUNCATED_CAVEAT)
+            text = f"{text}\n\n_{TRUNCATED_CAVEAT}_"
         self.outcome.final_text = text
         self.outcome.untraced = untraced
         last = next((r for r in reversed(self.outcome.records) if r.role == "assistant"), None)
@@ -288,3 +373,41 @@ class AgentLoop:
                 "cost_is_approximate": True,
             },
         )
+
+
+def _answer_text(completion: Completion) -> str:
+    """Return the answer; reasoning is never used in its place."""
+    text = completion.text.strip()
+    if text:
+        return text
+    return OUT_OF_TOKENS_ANSWER if completion.finish_reason == "length" else EMPTY_ANSWER
+
+
+def _forget_bad_calls(
+    messages: list[ChatMessage], bad_calls: list[ToolCall], tool_names: list[str]
+) -> None:
+    """Take bad calls out of what the provider sees and say which tools exist instead.
+
+    Stored records and events keep them; only the prompt changes (see `is_replayable`).
+    """
+    if not bad_calls:
+        return
+    ids = {c.id for c in bad_calls}
+    assistant = next(m for m in reversed(messages) if m.role == "assistant")
+    assistant.tool_calls = [c for c in assistant.tool_calls if c.id not in ids]
+    if not assistant.tool_calls and not assistant.content:
+        messages.remove(assistant)
+    messages[:] = [m for m in messages if m.tool_call_id not in ids]
+    for call in bad_calls:
+        note = BAD_CALL_NOTE.format(name=call.name[:60], tools=", ".join(tool_names))
+        messages.append(ChatMessage("system", note))
+
+
+def _latest_results(messages: list[ChatMessage]) -> int:
+    """Return how many tool results follow the last assistant message."""
+    count = 0
+    for message in reversed(messages):
+        if message.role != "tool":
+            break
+        count += 1
+    return count
