@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { GROUND_TRUTH } from "./global-setup";
-import { SAMPLE_MESSY, dialScore, msg, register, uploadAnalysed, waitForAnalysis } from "./helpers";
+import { SAMPLE_MESSY, dialScore, growToFullPage, msg, register, uploadAnalysed, waitForAnalysis } from "./helpers";
 
 /**
  * Screenshots of every page: en/ar x light/dark x 375/1440. Run on demand:
@@ -82,10 +82,9 @@ test("capture every page", async ({ browser, baseURL }, testInfo) => {
         for (const target of pages.filter((x) => x.auth)) {
           await p.goto(target.url);
           await settle(p);
-          await p.screenshot({
-            path: path.join(OUT, `${target.name}-${locale}-${scheme}-${width}.png`),
-            fullPage: target.full === true,
-          });
+          const restore = target.full ? await growToFullPage(p) : null;
+          await p.screenshot({ path: path.join(OUT, `${target.name}-${locale}-${scheme}-${width}.png`) });
+          await restore?.();
         }
         await context.close();
       }

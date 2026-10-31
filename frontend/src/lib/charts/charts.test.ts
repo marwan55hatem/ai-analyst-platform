@@ -68,6 +68,15 @@ describe("kpi logic", () => {
     ] as unknown as SeriesPoint[];
     expect(sparkValues(series, "aov")).toEqual([10, 12]);
   });
+
+  it("leaves partial periods out of the sparkline, so a cut-off week is not a dip", () => {
+    const series = [
+      { period: "2024-01-01", aov: 3, partial: true },
+      { period: "2024-01-08", aov: 10, partial: false },
+      { period: "2024-01-15", aov: 12, partial: false },
+    ] as unknown as SeriesPoint[];
+    expect(sparkValues(series, "aov")).toEqual([10, 12]);
+  });
 });
 
 const EVENT = (start: string, kind: "spike" | "drop", change: number): AnomalyEvent => ({

@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * Insights of a run, highest impact first
-         * @description Return a run's insights, filtered by type, confidence or module.
+         * @description Return a run's insights, filtered by one type or several, confidence or module.
          */
         get: operations["list_insights_api_v1_analysis_runs__run_id__insights_get"];
         put?: never;
@@ -2695,6 +2695,7 @@ export interface operations {
         parameters: {
             query?: {
                 type?: string | null;
+                types?: string[] | null;
                 confidence?: ("high" | "medium" | "low") | null;
                 module?: string | null;
                 sort?: "impact_score";

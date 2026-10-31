@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { GROUND_TRUTH } from "./global-setup";
-import { analysedUser, login } from "./helpers";
+import { analysedUser, growToFullPage, login } from "./helpers";
 
 /**
  * Visual snapshots of the dashboard and insights pages: en/ar x light/dark x 1440/375 px.
@@ -44,12 +44,13 @@ test("dashboard and insights pages match their snapshots", async ({ browser, bas
           await page.waitForTimeout(2_100);
           await page.goto(target.url);
           await settle(page, target.ready);
+          const restore = await growToFullPage(page);
           await expect(page).toHaveScreenshot(`${target.name}-${locale}-${scheme}-${width}.png`, {
-            fullPage: true,
             mask: [page.locator("header")],
             maxDiffPixelRatio: 0.01,
             animations: "disabled",
           });
+          await restore();
         }
         await context.close();
       }

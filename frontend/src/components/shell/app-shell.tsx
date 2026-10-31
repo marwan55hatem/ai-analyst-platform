@@ -111,7 +111,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
 
           {me ? (
-            <p className="min-w-0 truncate text-sm">
+            <p className="line-clamp-2 min-w-0 flex-1 text-xs leading-tight break-words sm:line-clamp-1 sm:text-sm" title={me.tenant.name}>
               <span className="sr-only">{th("company")}: </span>
               <span className="font-medium" dir="auto">
                 {me.tenant.name}
@@ -119,8 +119,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </p>
           ) : null}
 
-          <div className="ms-auto flex items-center gap-1">
-            <LocaleSwitcher />
+          <div className="ms-auto flex shrink-0 items-center gap-1">
+            <LocaleSwitcher labelClassName="hidden sm:inline" />
             <ThemeToggle />
             <UserMenu />
           </div>

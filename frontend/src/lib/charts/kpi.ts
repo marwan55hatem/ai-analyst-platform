@@ -32,10 +32,14 @@ export function isGood(key: KpiKey, dir: Direction): boolean | null {
 
 type SeriesKey = "net_revenue" | "orders" | "aov" | "units" | "margin_pct";
 
-/** Values for a sparkline; periods without a value (no orders, no cost) are left out. */
+/**
+ * Values for a sparkline. Periods without a value (no orders, no cost) are left out, and so are
+ * periods only partly inside the range, which would read as a dip.
+ */
 export function sparkValues(series: readonly SeriesPoint[], key: SeriesKey): number[] {
   const out: number[] = [];
   for (const point of series) {
+    if (point.partial) continue;
     const value = point[key];
     if (typeof value === "number" && Number.isFinite(value)) out.push(value);
   }

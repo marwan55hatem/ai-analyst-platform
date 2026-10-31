@@ -6,6 +6,9 @@ from typing import Any
 NULL_SHARE_LIMIT_PCT = 5.0
 LOW_QUALITY_SCORE = 60
 VERY_LOW_QUALITY_SCORE = 40
+# Exact duplicates only lower confidence above this share of rows: a handful in a large file
+# cannot move a result, though they are still reported.
+DUPLICATE_CAP_SHARE_PCT = 0.5
 _RANK = {"low": 0, "medium": 1, "high": 2}
 
 
@@ -46,6 +49,12 @@ class QualityContext:
             null_pct={c.name: float(c.stats.get("null_pct") or 0.0) for c in columns},
         )
 
+    def _duplicates_matter(self) -> bool:
+        """Return whether duplicates are common enough to cap confidence (unknown size: yes)."""
+        if self.row_count <= 0:
+            return True
+        return 100.0 * self.duplicate_rows / self.row_count > DUPLICATE_CAP_SHARE_PCT
+
     def caveats(self, key_columns: list[str], excluded_rows: int = 0, what: str = "") -> Caveats:
         """Return the warnings and confidence cap for an insight using these key columns.
 
@@ -54,11 +63,13 @@ class QualityContext:
         warnings: list[str] = []
         cap: str | None = None
         if self.duplicate_rows > 0:
+            rows = "row is" if self.duplicate_rows == 1 else "rows are"
             warnings.append(
-                f"{self.duplicate_rows:,} exact duplicate rows are included in these "
+                f"{self.duplicate_rows:,} exact duplicate {rows} included in these "
                 f"{what or 'figures'}."
             )
-            cap = "medium"
+            if self._duplicates_matter():
+                cap = "medium"
         heavy = [c for c in key_columns if self.null_pct.get(c, 0.0) > NULL_SHARE_LIMIT_PCT]
         if heavy:
             names = ", ".join(f"'{c}' ({self.null_pct[c]:.1f}% empty)" for c in heavy)

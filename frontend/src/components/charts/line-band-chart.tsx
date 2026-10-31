@@ -24,6 +24,9 @@ export interface LineBandLabels {
   drop: string;
   forecastStarts: string;
   partial: string;
+  /** Wording for a period that contains an unusual day (week and month views). */
+  tickSpike?: string;
+  tickDrop?: string;
 }
 
 export interface LineBandChartProps {
@@ -37,9 +40,18 @@ export interface LineBandChartProps {
   height?: number;
   /** Accessible name of the plot (the table view carries the numbers). */
   ariaLabel: string;
+  /**
+   * "point" sits on the line and belongs to day views. "tick" marks the time axis instead: a
+   * one-day anomaly is not a property of a weekly or monthly total, so it must not sit on it.
+   */
+  markerStyle?: "point" | "tick";
+  /** Full date of an anomaly, for the tooltip of a tick. */
+  formatDay?: (iso: string) => string;
 }
 
 const AXIS = { fontSize: 12, fill: "var(--muted-foreground)" };
+const MARGIN = { top: 12, right: 12, bottom: 4, left: 4 };
+const AXIS_HEIGHT = 30;
 
 /** Triangle marker for anomalies: up for a spike, down for a drop, ringed by the card colour. */
 interface MarkerProps {
@@ -69,15 +81,38 @@ function MarkerDot(props: MarkerProps) {
   );
 }
 
+/** A small triangle standing on the time axis: this period contains an unusual day. */
+function MarkerTick({ cx, axisY, payload, index }: MarkerProps & { axisY: number }) {
+  if (!payload?.marker || cx === undefined) return <g key={`m${index}`} />;
+  const s = 5;
+  const top = axisY - 2 * s;
+  const path =
+    payload.marker === "spike"
+      ? `M${cx},${top} L${cx + s},${axisY} L${cx - s},${axisY} Z`
+      : `M${cx},${axisY} L${cx + s},${top} L${cx - s},${top} Z`;
+  return (
+    <path
+      key={`m${index}`}
+      d={path}
+      fill={payload.marker === "spike" ? "var(--good)" : "var(--bad)"}
+      stroke="var(--card)"
+      strokeWidth={1}
+      data-marker-tick={payload.marker}
+    />
+  );
+}
+
 function TooltipBody({
   active,
   payload,
   labels,
   formatValue,
   formatPeriod,
+  markerStyle,
+  formatDay,
 }: { active?: boolean; payload?: readonly { payload?: unknown }[] } & Pick<
   LineBandChartProps,
-  "labels" | "formatValue" | "formatPeriod"
+  "labels" | "formatValue" | "formatPeriod" | "markerStyle" | "formatDay"
 >) {
   const point = payload?.[0]?.payload as TrendPoint | undefined;
   if (!active || !point) return null;
@@ -110,7 +145,13 @@ function TooltipBody({
       {point.marker ? (
         <p className={point.marker === "spike" ? "text-good" : "text-bad"}>
           {point.marker === "spike" ? "▲ " : "▼ "}
-          {point.marker === "spike" ? labels.spike : labels.drop}
+          {markerStyle === "tick"
+            ? `${(point.marker === "spike" ? labels.tickSpike : labels.tickDrop) ?? ""} · ${
+                point.event ? (formatDay ?? formatPeriod)(point.event.start) : ""
+              }`
+            : point.marker === "spike"
+              ? labels.spike
+              : labels.drop}
         </p>
       ) : null}
     </div>
@@ -129,16 +170,18 @@ export const LineBandChart = memo(function LineBandChart({
   formatPeriod,
   height = 280,
   ariaLabel,
+  markerStyle = "point",
+  formatDay,
 }: LineBandChartProps) {
   const start = useMemo(() => forecastStart(points), [points]);
   const hasForecast = start >= 0;
   const hasMarkers = useMemo(() => points.some((p) => p.marker), [points]);
   return (
     <div className="space-y-2">
-      <Legend labels={labels} forecast={hasForecast} markers={hasMarkers} />
+      <Legend labels={labels} forecast={hasForecast} markers={hasMarkers} markerStyle={markerStyle} />
       <div dir="ltr" role="img" aria-label={ariaLabel} style={{ height }} className="w-full">
         <ResponsiveContainer width="100%" height={height} initialDimension={{ width: 640, height }}>
-          <ComposedChart data={points} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} accessibilityLayer={false}>
+          <ComposedChart data={points} margin={MARGIN} accessibilityLayer={false}>
             <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
             <XAxis
               dataKey="period"
@@ -147,6 +190,7 @@ export const LineBandChart = memo(function LineBandChart({
               tickLine={false}
               axisLine={{ stroke: "var(--border)" }}
               minTickGap={24}
+              height={AXIS_HEIGHT}
             />
             <YAxis
               tickFormatter={formatTick}
@@ -164,6 +208,8 @@ export const LineBandChart = memo(function LineBandChart({
                   labels={labels}
                   formatValue={formatValue}
                   formatPeriod={formatPeriod}
+                  markerStyle={markerStyle}
+                  formatDay={formatDay}
                 />
               )}
             />
@@ -208,15 +254,24 @@ export const LineBandChart = memo(function LineBandChart({
               strokeWidth={2}
               dot={
                 hasMarkers
-                  ? (p) => (
-                      <MarkerDot
-                        key={`m${p.index}`}
-                        cx={typeof p.cx === "number" ? p.cx : undefined}
-                        cy={typeof p.cy === "number" ? p.cy : undefined}
-                        payload={p.payload as TrendPoint}
-                        index={p.index}
-                      />
-                    )
+                  ? (p) =>
+                      markerStyle === "tick" ? (
+                        <MarkerTick
+                          key={`m${p.index}`}
+                          cx={typeof p.cx === "number" ? p.cx : undefined}
+                          axisY={height - MARGIN.bottom - AXIS_HEIGHT}
+                          payload={p.payload as TrendPoint}
+                          index={p.index}
+                        />
+                      ) : (
+                        <MarkerDot
+                          key={`m${p.index}`}
+                          cx={typeof p.cx === "number" ? p.cx : undefined}
+                          cy={typeof p.cy === "number" ? p.cy : undefined}
+                          payload={p.payload as TrendPoint}
+                          index={p.index}
+                        />
+                      )
                   : false
               }
               activeDot={{ r: 4, stroke: "var(--card)", strokeWidth: 2 }}
@@ -230,8 +285,30 @@ export const LineBandChart = memo(function LineBandChart({
   );
 });
 
+/** A band as it looks in the chart: the 80% range is drawn over the 95% range. */
+function BandSwatch({ inner = false }: { inner?: boolean }) {
+  return (
+    <svg width="20" height="12" aria-hidden="true" data-testid={inner ? "swatch-80" : "swatch-95"}>
+      <rect width="20" height="12" fill="var(--chart-band-95)" />
+      {inner ? <rect width="20" height="12" fill="var(--chart-band-80)" /> : null}
+      <rect x="0.5" y="0.5" width="19" height="11" fill="none" stroke="var(--chart-forecast)" />
+    </svg>
+  );
+}
+
 /** Legend with the line style of each series, so identity never rests on colour alone. */
-function Legend({ labels, forecast, markers }: { labels: LineBandLabels; forecast: boolean; markers: boolean }) {
+function Legend({
+  labels,
+  forecast,
+  markers,
+  markerStyle,
+}: {
+  labels: LineBandLabels;
+  forecast: boolean;
+  markers: boolean;
+  markerStyle: "point" | "tick";
+}) {
+  const ticks = markerStyle === "tick";
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-hidden="true">
       <li className="flex items-center gap-1.5">
@@ -249,11 +326,11 @@ function Legend({ labels, forecast, markers }: { labels: LineBandLabels; forecas
             {labels.forecast}
           </li>
           <li className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-4 rounded-xs" style={{ background: "var(--chart-band-80)" }} />
+            <BandSwatch inner />
             {labels.band80}
           </li>
           <li className="flex items-center gap-1.5">
-            <span className="inline-block h-2.5 w-4 rounded-xs" style={{ background: "var(--chart-band-95)" }} />
+            <BandSwatch />
             {labels.band95}
           </li>
         </>
@@ -262,11 +339,11 @@ function Legend({ labels, forecast, markers }: { labels: LineBandLabels; forecas
         <>
           <li className="flex items-center gap-1.5">
             <span className="text-good">▲</span>
-            {labels.spike}
+            {ticks ? labels.tickSpike : labels.spike}
           </li>
           <li className="flex items-center gap-1.5">
             <span className="text-bad">▼</span>
-            {labels.drop}
+            {ticks ? labels.tickDrop : labels.drop}
           </li>
         </>
       ) : null}

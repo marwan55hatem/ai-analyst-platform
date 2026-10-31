@@ -123,13 +123,28 @@ def test_drop_rows_removes_rows_with_missing_values(messy: Messy) -> None:
     assert result.applied[0].rows_affected == missing
 
 
-def test_outliers_are_flagged_never_deleted(messy: Messy) -> None:
-    expected = next(c for c in messy.profile.columns if c.name == "cost").stats["outlier_count"]
-    result = messy.apply({"flag_outliers:cost": None}, "flag")
-    assert result.row_count == 1650
-    assert result.new_columns == ["cost_is_outlier"]
-    flagged = messy.query("SELECT count(*) FILTER (WHERE cost_is_outlier) FROM {t}", "flag")[0][0]
-    assert flagged == expected > 0
+@pytest.mark.parametrize(
+    ("column", "scale"), [("reading", "linear"), ("unit_price", "log")], ids=["linear", "log"]
+)
+def test_outliers_are_flagged_never_deleted(tmp_path: Path, column: str, scale: str) -> None:
+    rows = ["reading,unit_price,revenue"]
+    for i in range(200):
+        price = [2.5, 8.0, 40.0, 500.0][i % 4] + i / 100
+        rows.append(f"{(i % 21) - 10},{price},{-price if i % 40 == 0 else price * 2}")
+    rows.append("9000,9000000,18000000")
+    parquet, _ = ingest_csv(tmp_path, "\n".join(rows).encode())
+    profile = compute_profile(parquet)
+    stats = next(c for c in profile.columns if c.name == column).stats
+    assert stats["outlier_bounds"]["scale"] == scale
+    plan = [f.as_dict() for f in profile.plan]
+    result = apply_fixes(parquet, tmp_path / "out.parquet", plan, {f"flag_outliers:{column}": None})
+    assert result.row_count == 201
+    assert result.new_columns == [f"{column}_is_outlier"]
+    path = (tmp_path / "out.parquet").as_posix()
+    flagged = duckdb.connect().execute(
+        f"SELECT count(*) FILTER (WHERE {column}_is_outlier) FROM read_parquet('{path}')"
+    )
+    assert flagged.fetchone()[0] == stats["outlier_count"] > 0
 
 
 def test_ambiguous_dates_follow_the_chosen_strategy(messy: Messy) -> None:

@@ -278,6 +278,7 @@ export function useTimeseries(id: string, version: number, range: RangeQuery, en
 export interface InsightFilters {
   module?: string;
   confidence?: "high" | "medium" | "low";
+  types?: string[];
 }
 
 export const INSIGHT_PAGE = 20;

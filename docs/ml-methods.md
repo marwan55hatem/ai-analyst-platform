@@ -60,6 +60,7 @@ Read from the version's stored profile and quality score; nothing is recomputed.
 
 | Trigger | Warning on every affected insight | Confidence |
 | --- | --- | --- |
+| Duplicates above 0.5% of rows | Confidence is capped at medium on every card, including the dashboard trend. At or below 0.5% the warning stays but confidence is not capped. |
 | Profile reports exact duplicate rows | "N exact duplicate rows are included in these totals." (duplicates are not removed; cleaning is opt-in in Step 3) | capped at medium |
 | A key column of the module has more than 5% nulls | "N rows with no value in 'col' (x% empty) were excluded from this analysis." | capped at medium |
 | Quality score below 60 | "The dataset quality score is low (s/100) ..." | capped at medium; low if score < 40 |
@@ -225,7 +226,7 @@ sample). Text always says these are **findings from the data, not proven causes*
 | History (primary date, net revenue per period) | Method | Confidence |
 | --- | --- | --- |
 | Daily (also irregular) data under 56 days; weekly or monthly data under 26 periods; quarterly or yearly dates | skipped, with the reason in `/capabilities` | - |
-| Daily, 56-89 days | STL (period 7, seasonal window 31, robust) on log1p daily revenue; robust z = 0.6745 (r - median) / MAD; a day counts at \|z\| >= 3.5 | low |
+| Daily, 56-89 days | STL (period 7, seasonal window 31, robust) on log1p daily revenue; robust z = 0.6745 (r - median) / MAD; a day counts at \|z\| >= 4 and at least 3x or under 1/3 of the expected day | low |
 | Daily, 90+ days | as above, **and** an Isolation Forest must flag the same day (consensus) | medium; high with a year or more |
 | Weekly or monthly, 26+ periods | residuals from a centred 5-period rolling median, same z rule (forest from 90 periods) | as above |
 
@@ -239,8 +240,14 @@ sample). Text always says these are **findings from the data, not proven causes*
 * **Why consensus.** At around 7 orders a day, log daily revenue is heavy-tailed (one large order moves a
   day a lot), so \|z\| >= 3.5 alone fired on 40+ ordinary days of a 2-year test file. Requiring both
   detectors keeps to the alert budget and still finds the planted days.
+* **Threshold.** The residual excludes trend, season and weekday (STL with period 7), but a z-score still
+  depends on how noisy the business is. On the 309,254-row `sales_large_clean.csv` z >= 3.5 flagged 12 days,
+  5 of them planted (precision 0.42): ordinary days reached z 5.5 at only 1.9x or 0.43x of normal. On planted
+  files of about 7 orders a day real 9-18x spikes score just z 4.4-6.8, so a higher z alone would miss them.
+  What separates the two is size, so a day needs \|z\| >= 4 **and** to be at least 3x or under 1/3 of its
+  expected value: 5 flagged, precision and recall 1.00 on the large file. Weeks and months use z alone.
 * **Events.** Consecutive flagged periods in the same direction form one event: spike (z > 0) or drop
-  (z < 0). Events are ranked by \|actual - expected\| x length (magnitude x persistence); the top 5 get an
+  (z < 0). Events are ranked by \|actual - expected\| x length (magnitude x persistence); the top 10 get an
   `anomaly` insight each, and all of them are in `anomaly_summary.payload.events`.
 * **Likely contributors (drill-down).** For each top event and each dimension (product, category, region,
   channel): revenue per period during the event minus the average per period over the 28 days (4 weeks,

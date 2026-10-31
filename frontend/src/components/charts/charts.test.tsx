@@ -183,7 +183,8 @@ describe("<KpiCard>", () => {
     const change = card.querySelector("[data-direction]");
     expect(change).toHaveAttribute("data-direction", "up");
     expect(change).toHaveClass("text-good");
-    expect(change).toHaveTextContent("+83.5%vs previous period");
+    expect(change).toHaveTextContent("+83.5%");
+    expect(within(card).getByTestId("kpi-comparison")).toHaveTextContent("vs previous period");
     expect(within(card).getByTestId("sparkline")).toBeInTheDocument();
   });
 

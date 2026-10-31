@@ -232,6 +232,7 @@ class InsightRepository(TenantRepository[Insight]):
         run_id: uuid.UUID,
         *,
         type: str | None = None,
+        types: list[str] | None = None,
         confidence: str | None = None,
         module: str | None = None,
         limit: int = 100,
@@ -239,6 +240,8 @@ class InsightRepository(TenantRepository[Insight]):
     ) -> list[Insight]:
         """Return a run's insights, highest impact first, with optional filters."""
         stmt = self._select().where(Insight.run_id == run_id)
+        if types:
+            stmt = stmt.where(Insight.type.in_(types))
         if type is not None:
             stmt = stmt.where(Insight.type == type)
         if confidence is not None:

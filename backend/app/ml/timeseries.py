@@ -11,7 +11,15 @@ from typing import Any, Literal
 
 from app.ml.base import AnalysisContext
 from app.ml.engine import lit, num
-from app.ml.modules.common import as_date, evidence_query, jsonable, series_confidence
+from app.ml.modules.common import (
+    as_date,
+    evidence_query,
+    excluded_rows,
+    jsonable,
+    revenue_key_columns,
+    series_confidence,
+)
+from app.ml.quality import cap_confidence
 
 Grain = Literal["day", "week", "month"]
 METHOD = (
@@ -260,6 +268,11 @@ def compute(
     if ctx.roles.derived_revenue:
         warnings.append("Revenue was derived as quantity x price (the file has no revenue column).")
     complete = [p for p in series if not p["partial"]]
+    # The same data-quality caveats as the insight cards, so one file shows one confidence.
+    keys = [ctx.roles.columns["date"], *revenue_key_columns(ctx)]
+    caveats = ctx.quality.caveats(keys, excluded_rows(ctx, keys))
+    warnings.extend(caveats.warnings)
+    confidence = cap_confidence(series_confidence(len(complete), rows), caveats.cap)
     out: dict[str, Any] = jsonable(
         {
             "range": window.as_dict(),
@@ -270,7 +283,7 @@ def compute(
             "kpis": _kpis(now, before, why_not),
             "series": series,
             "sample_size": rows,
-            "confidence": series_confidence(len(complete), rows),
+            "confidence": confidence,
             "method": METHOD,
             "warnings": warnings,
             "evidence": [

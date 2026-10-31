@@ -189,14 +189,17 @@ class _Pipeline:
             flag = f"{column}_is_outlier_{suffix}"
             suffix += 1
         flag_ident = quote_ident(flag)
+        # The same fences as the profile: log-scale columns are judged on positive values only.
+        log_scale = fix.get("params", {}).get("scale") == "log"
+        measure = f"ln(CASE WHEN {value} > 0 THEN {value} END)" if log_scale else value
         self.stage(
             f"""
             SELECT * EXCLUDE (__q1, __q3),
                    COALESCE(__v < __q1 - 1.5 * (__q3 - __q1)
                             OR __v > __q3 + 1.5 * (__q3 - __q1), FALSE) AS {flag_ident}
-            FROM (SELECT *, {value} AS __v,
-                         quantile_cont({value}, 0.25) OVER () AS __q1,
-                         quantile_cont({value}, 0.75) OVER () AS __q3
+            FROM (SELECT *, {measure} AS __v,
+                         quantile_cont({measure}, 0.25) OVER () AS __q1,
+                         quantile_cont({measure}, 0.75) OVER () AS __q3
                   FROM {self.current})
             """
         )

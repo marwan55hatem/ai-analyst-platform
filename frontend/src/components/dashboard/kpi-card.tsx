@@ -49,13 +49,17 @@ export const KpiCard = memo(function KpiCard({
             {formatValue(kpi, fmt)}
           </p>
           {change ? (
-            <p className={cn("flex items-center gap-1 text-sm", tone)} data-direction={dir}>
-              <Icon className="size-4 shrink-0" aria-hidden="true" />
-              <span className="tabular-nums">
-                {kpi.change_unit === "points" ? t("points", { value: change }) : change}
-              </span>
-              <span className="text-muted-foreground">{t(`direction.${dir}`, { previous: previousLabel })}</span>
-            </p>
+            <div className="space-y-0.5 text-sm">
+              <p className={cn("flex items-center gap-1 whitespace-nowrap", tone)} data-direction={dir}>
+                <Icon className="size-4 shrink-0" aria-hidden="true" />
+                <span className="tabular-nums">
+                  {kpi.change_unit === "points" ? t("points", { value: change }) : change}
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground" data-testid="kpi-comparison">
+                {t(`direction.${dir}`, { previous: previousLabel })}
+              </p>
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground" data-direction="none">
               {t("noComparison")}

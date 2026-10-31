@@ -86,6 +86,12 @@ export function buildTrend(
   return points;
 }
 
+/** Anomalies by severity: money away from the expected level, times how long it lasted. */
+export function rankEvents(events: readonly AnomalyEvent[]): AnomalyEvent[] {
+  const severity = (e: AnomalyEvent) => Math.abs(e.change) * e.length;
+  return [...events].sort((a, b) => severity(b) - severity(a) || a.start.localeCompare(b.start));
+}
+
 /** Index of the first forecast-only point, or -1 when there is no forecast. */
 export function forecastStart(points: readonly TrendPoint[]): number {
   return points.findIndex((p) => p.actual === null && p.forecast !== null);

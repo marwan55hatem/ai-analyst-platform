@@ -16,7 +16,7 @@ export function setLocaleCookie(locale: Locale): void {
 }
 
 /** One-tap switch to the other language, labelled in that language. */
-export function LocaleSwitcher({ className }: { className?: string }) {
+export function LocaleSwitcher({ className, labelClassName }: { className?: string; labelClassName?: string }) {
   const t = useTranslations("header");
   const locale = toLocale(useLocale());
   const router = useRouter();
@@ -36,7 +36,9 @@ export function LocaleSwitcher({ className }: { className?: string }) {
       }}
     >
       <Languages aria-hidden="true" />
-      <span lang={next}>{t("switchTo")}</span>
+      <span lang={next} className={labelClassName}>
+        {t("switchTo")}
+      </span>
     </Button>
   );
 }

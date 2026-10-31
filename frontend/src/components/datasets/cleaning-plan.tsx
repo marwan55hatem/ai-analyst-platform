@@ -136,6 +136,8 @@ export function CleaningPlan({
   const [choices, setChoices] = useState(() => initialChoices(fixes));
   const apply = useApplyPlan(datasetId, version);
   const body = useMemo(() => toApplyBody(fixes, choices), [fixes, choices]);
+  // The sentence describes the starting selection, so ticking boxes does not change it.
+  const preselected = useMemo(() => Object.values(initialChoices(fixes)).some((c) => c.selected), [fixes]);
 
   if (!fixes.length) {
     return (
@@ -148,7 +150,9 @@ export function CleaningPlan({
 
   return (
     <div className="space-y-4">
-      <p className="max-w-prose text-sm text-muted-foreground">{t("intro")}</p>
+      <p className="max-w-prose text-sm text-muted-foreground" data-testid="plan-intro">
+        {t(preselected ? "intro" : "introNoneRecommended")}
+      </p>
       {RISK_ORDER.map((risk) => {
         const group = fixes.filter((f) => f.risk === risk);
         if (!group.length) return null;

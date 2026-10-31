@@ -4,6 +4,7 @@ Everything is computed by aggregate queries over the Parquet view, so memory use
 depend on the file size. The LLM never sees or computes any of these numbers (golden rule 1).
 """
 
+import math
 from typing import Any
 
 from app.services.ingest import is_identifier_name
@@ -20,6 +21,7 @@ from app.services.profiling.parsing import (
     quote_literal,
 )
 from app.services.profiling.results import ColumnResult
+from app.services.profiling.roles import is_amount_name
 
 QUANTILES = (0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99)
 QUANTILE_KEYS = ("p1", "p5", "p25", "p50", "p75", "p95", "p99")
@@ -32,6 +34,12 @@ CATEGORICAL_MAX_RATIO = 0.5
 CASE_VARIANT_MAX_DISTINCT = 10_000
 LEADING_ZEROS_RE2 = "^0[0-9]+$"
 FLAG_MAX_DISTINCT = 5  # columns with so few values are flags/codes, not measurements
+# Money and other skewed amounts: when the IQR fence falls below zero it says nothing about the
+# low end, and across many products the top of the range is ordinary. Amounts, and any column
+# with no negatives, are then judged on a log scale over their positive values, so returns
+# (negative amounts) are never "outliers". Other columns keep the plain IQR fences.
+IQR_FENCE = 1.5
+LOG_SQL = "ln(CASE WHEN x > 0 THEN x END)"
 
 _INT_TYPES = (
     "TINYINT",
@@ -55,9 +63,12 @@ def _value_expr(ident: str, is_text: bool) -> str:
 
 
 def numeric_stats(
-    con: Any, expr: str, present: str, *, detect_outliers: bool = True
+    con: Any, expr: str, present: str, *, detect_outliers: bool = True, money: bool = False
 ) -> dict[str, Any]:
-    """Return min/max/mean/median/std, quantiles, skewness and IQR outliers of an expression."""
+    """Return min/max/mean/median/std, quantiles, skewness and outliers of an expression.
+
+    `money` marks revenue, price, cost or quantity, whose outlier bounds are never negative.
+    """
     quantile_list = "[" + ", ".join(str(q) for q in QUANTILES) + "]"
     row = con.execute(
         f"""
@@ -87,18 +98,40 @@ def numeric_stats(
         "outlier_bounds": None,
     }
     if detect_outliers and quantiles and count >= 4:
-        q1, q3 = quantiles[2], quantiles[4]
-        spread = q3 - q1
-        lower, upper = q1 - 1.5 * spread, q3 + 1.5 * spread
-        outliers = con.execute(
-            f"""
-            WITH v AS (SELECT {expr} AS x FROM {SOURCE_VIEW} WHERE {present})
-            SELECT count(*) FILTER (WHERE x < {lower!r} OR x > {upper!r}) FROM v
-            """
-        ).fetchone()[0]
-        stats["outlier_count"] = int(outliers)
-        stats["outlier_bounds"] = {"lower": _round(lower), "upper": _round(upper)}
+        log_scale = money or (low is not None and low >= 0)
+        stats.update(_outliers(con, expr, present, quantiles[2], quantiles[4], log_scale))
     return stats
+
+
+def _outliers(
+    con: Any, expr: str, present: str, q1: float, q3: float, log_scale: bool
+) -> dict[str, Any]:
+    """Count values outside the IQR fences, on a log scale when the linear fence is impossible."""
+    source = f"WITH v AS (SELECT {expr} AS x FROM {SOURCE_VIEW} WHERE {present})"
+    lower = q1 - IQR_FENCE * (q3 - q1)
+    upper = q3 + IQR_FENCE * (q3 - q1)
+    if lower < 0 and log_scale:
+        logs = con.execute(f"{source} SELECT quantile_cont({LOG_SQL}, [0.25, 0.75]) FROM v")
+        fences = logs.fetchone()[0]
+        if not fences or fences[0] is None:
+            return {"outlier_count": 0, "outlier_bounds": None}
+        spread = fences[1] - fences[0]
+        lower, upper = fences[0] - IQR_FENCE * spread, fences[1] + IQR_FENCE * spread
+        count = con.execute(
+            f"{source} SELECT count(*) FILTER (WHERE {LOG_SQL} < {lower!r} "
+            f"OR {LOG_SQL} > {upper!r}) FROM v"
+        ).fetchone()[0]
+        bounds = {
+            "lower": _round(math.exp(lower)),
+            "upper": _round(math.exp(upper)),
+            "scale": "log",
+        }
+        return {"outlier_count": int(count), "outlier_bounds": bounds}
+    count = con.execute(
+        f"{source} SELECT count(*) FILTER (WHERE x < {lower!r} OR x > {upper!r}) FROM v"
+    ).fetchone()[0]
+    bounds = {"lower": _round(lower), "upper": _round(upper), "scale": "linear"}
+    return {"outlier_count": int(count), "outlier_bounds": bounds}
 
 
 def _top_values(con: Any, ident: str, is_text: bool, present: str) -> list[dict[str, Any]]:
@@ -290,7 +323,13 @@ def _infer(
         expr = (
             f"CASE WHEN isfinite(CAST({ident} AS DOUBLE)) THEN {ident} END" if is_float else ident
         )
-        extra = numeric_stats(con, expr, present, detect_outliers=distinct > FLAG_MAX_DISTINCT)
+        extra = numeric_stats(
+            con,
+            expr,
+            present,
+            detect_outliers=distinct > FLAG_MAX_DISTINCT,
+            money=is_amount_name(name),
+        )
         extra.update({"invalid_count": 0, "conform_share": 1.0})
         if is_identifier_name(name):
             return "identifier", extra
@@ -326,6 +365,7 @@ def _infer_text(
             number_from_clean_column(ident),
             present,
             detect_outliers=distinct > FLAG_MAX_DISTINCT,
+            money=is_amount_name(name),
         )
         extra.update(
             {

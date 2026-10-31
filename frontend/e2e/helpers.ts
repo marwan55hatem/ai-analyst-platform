@@ -140,3 +140,16 @@ export async function login(page: Page, user: DemoUser, locale: Locale = "en"): 
     }
   }
 }
+
+/**
+ * Make the viewport as tall as the page and return a function that restores it. Use this instead
+ * of `fullPage`: that capture redraws responsive charts at the wrong width, so they spill out of
+ * their cards in the image although the page itself is correct.
+ */
+export async function growToFullPage(page: Page): Promise<() => Promise<void>> {
+  const size = page.viewportSize()!;
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.setViewportSize({ width: size.width, height: Math.max(height, size.height) });
+  await page.waitForTimeout(300);
+  return () => page.setViewportSize(size);
+}

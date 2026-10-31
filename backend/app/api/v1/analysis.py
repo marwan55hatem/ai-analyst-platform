@@ -147,16 +147,23 @@ def list_insights(
     user: CurrentUser,
     db: DbSession,
     type: Annotated[str | None, Query(max_length=50)] = None,
+    types: Annotated[list[str] | None, Query(max_length=20)] = None,
     confidence: Confidence | None = None,
     module: Annotated[str | None, Query(max_length=50)] = None,
     sort: Literal["impact_score"] = "impact_score",
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[InsightSummary]:
-    """Return a run's insights, filtered by type, confidence or module."""
+    """Return a run's insights, filtered by one type or several, confidence or module."""
     AnalysisRunRepository(db, user.tenant_id).get_or_404(run_id)
     found = InsightRepository(db, user.tenant_id).for_run(
-        run_id, type=type, confidence=confidence, module=module, limit=limit, offset=offset
+        run_id,
+        type=type,
+        types=types,
+        confidence=confidence,
+        module=module,
+        limit=limit,
+        offset=offset,
     )
     return [InsightSummary.model_validate(i) for i in found]
 

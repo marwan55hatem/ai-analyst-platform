@@ -35,11 +35,17 @@ import { useFormat } from "@/lib/format";
 import { useUrlUpdate } from "@/lib/url-state";
 import { useAnomalies, useForecasts, useInsights, useModuleInsights, useTimeseries } from "@/lib/queries";
 
+import { EventList } from "./event-list";
 import { KpiCard } from "./kpi-card";
 import { RangeControls } from "./range-controls";
 
 const KPI_ORDER: KpiKey[] = ["net_revenue", "orders", "aov", "units", "margin_pct"];
 const GRAINS: Grain[] = ["day", "week", "month"];
+// Things someone can act on. Descriptive facts (totals, retention, customer groups) stay in the
+// insights feed.
+const ATTENTION_TYPES = ["anomaly", "level_shift", "dead_stock", "churn_risk"];
+const ATTENTION_FILTER = { types: ATTENTION_TYPES };
+const ATTENTION_LIMIT = 5;
 
 /**
  * Read the range, preset and grain from the URL. The default is the last 90 days: short enough
@@ -94,7 +100,16 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
   const forecasts = useForecasts(run.id);
   const anomalies = useAnomalies(run.id);
   const pareto = useModuleInsights(run.id, "pareto");
-  const attention = useInsights(run.id);
+  const attention = useInsights(run.id, ATTENTION_FILTER);
+  // Sparklines are always weekly: daily lines are noise at this size. Week-grain views reuse
+  // their own series, and very short ranges fall back to it.
+  const weeklyWanted = Boolean(range) && grain !== "week";
+  const weekly = useTimeseries(
+    datasetId,
+    version,
+    { start: range?.start, end: range?.end, grain: "week" },
+    weeklyWanted,
+  );
 
   const total = forecasts.data?.forecasts.find((f) => f.type === "forecast_total");
   const spec = total?.chart_spec as unknown as ForecastSpec | undefined;
@@ -118,9 +133,15 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
   }, [series.data, showForecast, spec, events, range?.end]);
 
   const sparks = useMemo(() => {
-    const s = series.data?.series ?? [];
-    return Object.fromEntries(KPI_ORDER.map((k) => [k, sparkValues(s, k)])) as Record<KpiKey, number[]>;
-  }, [series.data]);
+    const coarse = grain === "week" ? series.data?.series : weekly.data?.series;
+    const fine = series.data?.series ?? [];
+    return Object.fromEntries(
+      KPI_ORDER.map((k) => {
+        const values = sparkValues(coarse ?? [], k);
+        return [k, values.length >= 2 ? values : sparkValues(fine, k)];
+      }),
+    ) as Record<KpiKey, number[]>;
+  }, [series.data, weekly.data, grain]);
 
   // Timing mark for the "renders in under 2 s after data loads" check (e2e/dashboard.spec.ts).
   const [ready, setReady] = useState(false);
@@ -135,7 +156,8 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
 
   const dims = useMemo(() => byDimension(pareto.data ?? []), [pareto.data]);
   const comparisonGap = series.data?.kpis.find((k) => k.available && k.change === null && k.reason)?.reason ?? null;
-  const top = useMemo(() => (attention.data?.pages[0] ?? []).slice(0, 5), [attention.data]);
+  const top = useMemo(() => (attention.data?.pages[0] ?? []).slice(0, ATTENTION_LIMIT), [attention.data]);
+  const markerStyle = grain === "day" ? "point" : "tick";
   const periodFormat = grain === "month" ? fmt.month : fmt.shortDay;
   const previousLabel = t("previousPeriod");
 
@@ -149,6 +171,8 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
       drop: tc("drop"),
       forecastStarts: tc("forecastStarts"),
       partial: tc("partial"),
+      tickSpike: tc("tickSpike"),
+      tickDrop: tc("tickDrop"),
     }),
     [tc],
   );
@@ -235,7 +259,7 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
           takeaway={
             showForecast && spec
               ? t("trend.takeawayForecast", { periods: spec.forecast.length })
-              : t("trend.takeaway", { count: events.length })
+              : t(markerStyle === "tick" ? "trend.takeawayTick" : "trend.takeaway", { count: events.length })
           }
           unit={t("trend.unit", { grain: t(`grain.${grain}`) })}
           badges={series.data ? <ConfidenceBadge level={series.data.confidence} sampleSize={series.data.sample_size} /> : null}
@@ -283,33 +307,10 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
             formatTick={fmt.compact}
             formatPeriod={periodFormat}
             ariaLabel={t("trend.aria")}
+            markerStyle={markerStyle}
+            formatDay={fmt.day}
           />
-          {events.length ? (
-            <div className="space-y-2 pt-2">
-              <h3 className="text-sm font-medium">{t("trend.events", { count: events.length })}</h3>
-              <ul className="flex flex-wrap gap-2">
-                {events.slice(0, 6).map((e) => (
-                  <li key={`${e.start}-${e.kind}`}>
-                    {e.insight_id ? (
-                      <Button variant="outline" size="sm" onClick={() => e.insight_id && setOpenInsight(e.insight_id)}>
-                        <span className={e.kind === "spike" ? "text-good" : "text-bad"} aria-hidden="true">
-                          {e.kind === "spike" ? "▲" : "▼"}
-                        </span>
-                        {fmt.day(e.start)} · {tc(e.kind)}
-                      </Button>
-                    ) : (
-                      <span className="inline-flex h-8 items-center gap-1.5 px-2 text-sm">
-                        <span className={e.kind === "spike" ? "text-good" : "text-bad"} aria-hidden="true">
-                          {e.kind === "spike" ? "▲" : "▼"}
-                        </span>
-                        {fmt.day(e.start)} · {tc(e.kind)}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+          <EventList events={events} onOpen={setOpenInsight} />
         </ChartFrame>
 
         <section aria-labelledby="attention-heading" className="space-y-3" data-testid="attention">
@@ -340,6 +341,7 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
         run={run}
         datasetId={datasetId}
         version={version}
+        data={data}
       />
 
       <InsightDrawer id={openInsight} onClose={() => setOpenInsight(null)} />
@@ -353,12 +355,14 @@ function ContributorsPanel({
   run,
   datasetId,
   version,
+  data,
 }: {
   dims: ReturnType<typeof byDimension>;
   loading: boolean;
   run: AnalysisRun;
   datasetId: string;
   version: number;
+  data: DateRange | null;
 }) {
   const t = useTranslations("dashboard");
   const tc = useTranslations("charts");
@@ -376,7 +380,17 @@ function ContributorsPanel({
       testId="contributors"
       title={t("contributors.title")}
       takeaway={insight ? <EngineText>{insight.title}</EngineText> : undefined}
-      unit={t("contributors.unit")}
+      unit={
+        <>
+          {data ? (
+            <span className="font-medium text-foreground" data-testid="contributors-period">
+              {t("contributors.allTime", { start: fmt.day(data.start), end: fmt.day(data.end) })}
+              {" · "}
+            </span>
+          ) : null}
+          {t("contributors.unit")}
+        </>
+      }
       loading={loading}
       badges={insight ? <ConfidenceBadge level={insight.confidence} sampleSize={insight.sample_size} /> : null}
       table={
