@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  // Next buffers proxied request bodies and cuts them off at 10 MB by default, which breaks
+  // uploads the API accepts (it caps files at 50 MB). Leave room for the multipart framing.
+  experimental: { proxyClientMaxBodySize: "55mb" },
   async rewrites() {
     return [{ source: "/api/v1/:path*", destination: `${apiBaseUrl}/api/v1/:path*` }];
   },
