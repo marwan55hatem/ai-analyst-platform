@@ -45,7 +45,9 @@ test("dashboard shows KPIs, trend, contributors and attention, and renders fast"
   await expect(page).toHaveURL(/range=all.*grain=month|grain=month.*range=all/);
   const trend = page.getByTestId("trend-chart");
   await expect(trend.getByText(msg("en", "charts.band80")).first()).toBeVisible();
-  await expect(trend.locator("[data-marker=drop]").first()).toBeVisible();
+  // A monthly line shows anomalies as ticks on the time axis, never as points on the total.
+  await expect(trend.locator("[data-marker-tick=drop]").first()).toBeVisible();
+  await expect(trend.locator("[data-marker]")).toHaveCount(0);
   await trend.getByRole("button", { name: msg("en", "charts.viewTable") }).click();
   await expect(trend.getByRole("table")).toContainText(msg("en", "charts.forecast"));
 
@@ -54,9 +56,15 @@ test("dashboard shows KPIs, trend, contributors and attention, and renders fast"
   await contributors.getByTestId("dim-category").click();
   await expect(contributors.getByTestId("bar-chart").locator("li")).toHaveCount(5);
 
-  // What needs attention: five ranked insights; one opens its evidence and the chat hand-off.
+  await expect(contributors.getByTestId("contributors-period")).toContainText("All time");
+
+  // What needs attention: only actionable findings; one opens its evidence and the chat hand-off.
   const attention = page.getByTestId("attention").getByTestId("insight-list").locator("li");
-  await expect(attention).toHaveCount(5);
+  await expect(attention.first()).toBeVisible();
+  expect(await attention.count()).toBeLessThanOrEqual(5);
+  for (const name of await attention.locator("[data-module]").evaluateAll((rows) => rows.map((r) => r.getAttribute("data-module")))) {
+    expect(["anomalies", "pareto", "churn"]).toContain(name);
+  }
   await attention.first().getByRole("button").click();
   const drawer = page.getByTestId("insight-drawer");
   await expect(drawer.getByTestId("evidence").first()).toContainText("SELECT");

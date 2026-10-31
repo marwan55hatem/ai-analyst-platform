@@ -12,7 +12,7 @@ x-backend: &backend
     FORECAST_MAX_SERIES: ${FORECAST_MAX_SERIES:-11}
     FORECAST_MAX_HORIZON: ${FORECAST_MAX_HORIZON:-24}
     FORECAST_MAX_GROUPS: ${FORECAST_MAX_GROUPS:-10}
-    FORECAST_MEMORY_MB: ${FORECAST_MEMORY_MB:-600}
+    FORECAST_MEMORY_MB: ${FORECAST_MEMORY_MB:-850}
     FORECAST_SEED: ${FORECAST_SEED:-42}
     ML_SEED: ${ML_SEED:-42}
     ANOMALY_ROW_SAMPLE: ${ANOMALY_ROW_SAMPLE:-50000}
@@ -133,7 +133,7 @@ services:
   worker:
     <<: *backend
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
-    mem_limit: 768m
+    mem_limit: 1024m
 
   beat:
     <<: *backend

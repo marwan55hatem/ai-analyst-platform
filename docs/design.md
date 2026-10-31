@@ -115,7 +115,7 @@ The wrappers live in `frontend/src/components/charts`: `ChartFrame`, `LineBandCh
 | `chart-1` to `chart-4` | #0089A0, #B86E00, #6A4FC4, #C93D70 | #00939A, #C98500, #8A74E0, #D9588A | Categorical slots, in this fixed order |
 | `chart-actual` | #0B5C63 | #5CC2BE | History lines, ranked bars, sparklines |
 | `chart-forecast` | #8A5A00 | #E8B547 | Forecast line and result ranges |
-| `chart-band-80`, `chart-band-95` | chart-2 at 26% / 12% | signal at 24% / 11% | Forecast ranges |
+| `chart-band-80`, `chart-band-95` | chart-2 at 75% / 28% | signal at 50% / 18% | Forecast ranges. The 80% band is drawn over the 95% band: 3.0:1 (light) and 3.9:1 (dark) against the card, 2.2:1 and 2.7:1 against the 95% band. The forecast line keeps 3.7:1 or more on top of them |
 | `seq-0` to `seq-4` | petrol ramp | petrol ramp, brighter is more | Heatmaps; each step has a `-fg` text colour that stays AA |
 
 The categorical slots pass the dataviz validator on `card` in both themes: lightness band, chroma, colour-blind separation and 3:1 contrast. Status colours (`good`, `warn`, `bad`) stay reserved for state and risk; they mark anomalies and churn bands, never a series. Impact badges are outlined and neutral, because a large effect is not always bad news.

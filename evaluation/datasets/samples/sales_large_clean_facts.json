@@ -1,0 +1,68 @@
+{
+  "rows": 309254,
+  "date_range": [
+    "2023-01-01",
+    "2026-09-30"
+  ],
+  "orders": 152619,
+  "customers_with_purchases": 17905,
+  "net_revenue": 89601650.37,
+  "gross_revenue": 90677880.92,
+  "refund_rows": 3639,
+  "refund_total": 1076230.55,
+  "net_revenue_by_year": {
+    "2023": 17956766.82,
+    "2024": 22004651.26,
+    "2025": 26825370.56,
+    "2026": 22814861.73
+  },
+  "top_product_by_revenue": "Tablet Air",
+  "top_category_by_revenue": "Electronics",
+  "top_region_by_revenue": "North",
+  "top_channel_by_revenue": "Online",
+  "revenue_by_region": {
+    "East": 20219060.51,
+    "North": 30468055.61,
+    "South": 23894897.33,
+    "West": 16095867.47
+  },
+  "peak_month_of_year": 12,
+  "best_calendar_month": "2025-12",
+  "dead_stock_products_no_sale_since_2026_05_01": [
+    "Cap",
+    "Honey Jar",
+    "Speaker Mini"
+  ],
+  "planted_anomaly_days": [
+    {
+      "date": "2023-06-14",
+      "order_count_multiplier": 6.0,
+      "orders_that_day": 432
+    },
+    {
+      "date": "2024-03-02",
+      "order_count_multiplier": 0.08,
+      "orders_that_day": 5
+    },
+    {
+      "date": "2024-11-29",
+      "order_count_multiplier": 5.5,
+      "orders_that_day": 820
+    },
+    {
+      "date": "2025-08-19",
+      "order_count_multiplier": 0.1,
+      "orders_that_day": 12
+    },
+    {
+      "date": "2026-02-11",
+      "order_count_multiplier": 6.5,
+      "orders_that_day": 696
+    }
+  ],
+  "customers_inactive_90_days_before_end": 11143,
+  "new_customers_in_last_90_days": 398,
+  "average_order_value": 594.15,
+  "gross_margin_pct": 24.13,
+  "discounted_rows_pct": 37.99
+}

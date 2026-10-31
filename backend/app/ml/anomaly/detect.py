@@ -11,7 +11,11 @@ import pandas as pd
 from sklearn.ensemble import IsolationForest
 from statsmodels.tsa.seasonal import STL
 
-Z_THRESHOLD = 3.5
+Z_THRESHOLD = 4.0
+# A z-score alone cannot judge days: it depends on how noisy the business is. A busy shop reaches
+# z 5 on a day at 1.9x normal, a small one needs 12x to get there. So a day must also be far from
+# normal in plain terms: at least this many times the expected value, or under its inverse.
+DAY_MIN_RATIO = 3.0
 # share of zero days above which the log scale would turn ordinary quiet days into "drops"
 ZERO_SHARE_FOR_RAW = 0.05
 STL_MIN_DAYS = 56
@@ -53,12 +57,15 @@ class Scored:
     forest: np.ndarray | None
     scale: str  # "log" or "raw"
     method: str
+    min_ratio: float = 1.0  # 1.0 switches the size check off
 
     @property
     def flagged(self) -> np.ndarray:
-        """Points reported as anomalies: robust z beyond the threshold, confirmed by the forest."""
+        """Points reported as anomalies: z beyond the threshold, big enough, forest agrees."""
         strong = np.abs(self.z) >= Z_THRESHOLD
-        flags = strong if self.forest is None else strong & self.forest
+        ratio = (np.clip(self.actual, 0.0, None) + 1.0) / (np.clip(self.expected, 0.0, None) + 1.0)
+        big = np.maximum(ratio, 1.0 / ratio) >= self.min_ratio
+        flags = strong & big if self.forest is None else strong & big & self.forest
         return np.asarray(flags, dtype=bool)
 
 
@@ -173,7 +180,10 @@ def score(revenue: np.ndarray, plan: MethodPlan, extra: dict[str, np.ndarray], s
         if plan.baseline == "stl"
         else f"residuals from a centred {ROLLING_WINDOW}-{plan.unit} rolling median"
     )
-    method += f" of {scale} revenue scored with a robust z (median/MAD, |z| >= {Z_THRESHOLD})"
+    method += f" of {scale} revenue scored with a robust z (median/MAD, |z| >= {Z_THRESHOLD:g})"
+    min_ratio = DAY_MIN_RATIO if plan.unit == "day" else 1.0
+    if plan.unit == "day":
+        method += f", at least {DAY_MIN_RATIO:g}x or under 1/{DAY_MIN_RATIO:g} of the expected day"
     if plan.forest:
         columns = [resid]
         for values in extra.values():
@@ -192,6 +202,7 @@ def score(revenue: np.ndarray, plan: MethodPlan, extra: dict[str, np.ndarray], s
         forest=forest,
         scale=scale,
         method=method,
+        min_ratio=min_ratio,
     )
 
 

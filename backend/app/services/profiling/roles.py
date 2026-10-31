@@ -134,6 +134,12 @@ def _name_score(role: str, words: set[str]) -> float:
     return 0.0
 
 
+def is_amount_name(name: str) -> bool:
+    """Return whether a column reads as revenue, price, cost or quantity, in English or Arabic."""
+    words = _tokens(name)
+    return any(_name_score(role, words) for role in ("revenue", "price", "cost", "quantity"))
+
+
 def _id_context(words: set[str]) -> bool:
     return bool(words & ID_TOKENS)
 

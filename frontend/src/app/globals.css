@@ -46,9 +46,9 @@
   --chart-3: #6a4fc4;
   --chart-4: #c93d70;
   --chart-actual: #0b5c63;
-  --chart-forecast: #8a5a00;
-  --chart-band-80: rgb(184 110 0 / 0.26);
-  --chart-band-95: rgb(184 110 0 / 0.12);
+  --chart-forecast: #4f3300;
+  --chart-band-80: rgb(184 110 0 / 0.75);
+  --chart-band-95: rgb(184 110 0 / 0.28);
   --chart-grid: #e3eae8;
   /* Sequential petrol ramp for heatmaps; -fg is the text colour that stays AA on each step. */
   --seq-0: #f5f7f6;
@@ -101,9 +101,9 @@
   --chart-3: #8a74e0;
   --chart-4: #d9588a;
   --chart-actual: #5cc2be;
-  --chart-forecast: #e8b547;
-  --chart-band-80: rgb(232 181 71 / 0.24);
-  --chart-band-95: rgb(232 181 71 / 0.11);
+  --chart-forecast: #ffefc2;
+  --chart-band-80: rgb(232 181 71 / 0.5);
+  --chart-band-95: rgb(232 181 71 / 0.18);
   --chart-grid: #23353a;
   --seq-0: #152124;
   --seq-1: #1d3a3c;

@@ -44,3 +44,6 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/.lighthouse/
 frontend/blob-report/
+
+# Large manual-test dataset: kept local, too big for the public repo history
+evaluation/datasets/samples/sales_large_clean.csv

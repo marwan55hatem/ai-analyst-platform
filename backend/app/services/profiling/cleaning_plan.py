@@ -208,6 +208,7 @@ def _outlier_fixes(columns: list[ColumnResult]) -> list[Fix]:
                     cells_affected=count,
                     risk="low",
                     recommended=False,
+                    params={"scale": c.stats["outlier_bounds"].get("scale", "linear")},
                 )
             )
     return fixes

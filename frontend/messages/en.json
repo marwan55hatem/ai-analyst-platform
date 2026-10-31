@@ -230,7 +230,8 @@
     "affects": "Columns: {columns}"
   },
   "plan": {
-    "intro": "Fixes create a new version; your current version stays unchanged. Low-risk fixes are selected for you. Review medium and high-risk fixes before selecting them.",
+    "intro": "Fixes create a new version; your current version stays unchanged. Recommended fixes are selected for you. Review the others before selecting them.",
+    "introNoneRecommended": "Fixes create a new version; your current version stays unchanged. None of these is recommended automatically for this file, so nothing is selected. Review each one and choose what you want.",
     "none": "Nothing to fix. This version needs no cleaning.",
     "risk": {
       "low": "Low risk",
@@ -409,6 +410,8 @@
     "band95": "95% range",
     "spike": "Unusual spike",
     "drop": "Unusual drop",
+    "tickSpike": "Contains an unusual spike",
+    "tickDrop": "Contains an unusual drop",
     "forecastStarts": "Forecast",
     "partial": "partly in range",
     "period": "Period",
@@ -484,21 +487,26 @@
     "trend": {
       "title": "Revenue trend",
       "takeaway": "{count, plural, =0 {No unusual days in this range.} one {One unusual day is marked on the line.} other {# unusual days are marked on the line.}}",
+      "takeawayTick": "{count, plural, =0 {No unusual days in this range.} one {One unusual day is marked on the time axis.} other {# unusual days are marked on the time axis.}}",
       "takeawayForecast": "The dashed line is the estimate for the next {periods} periods; the shaded bands show the 80% and 95% ranges.",
       "unit": "Net revenue (sales minus returns) per {grain}",
       "aria": "Line chart of net revenue over the selected dates",
       "forecastHidden": "The forecast is made by {grain}.",
       "showForecast": "Show it",
+      "topEvents": "Top {shown} of {total}",
+      "showAllEvents": "Show all {total}",
+      "showTopEvents": "Show top {shown}",
       "events": "{count, plural, one {Unusual day} other {Unusual days}}"
     },
     "attention": {
       "title": "What needs attention",
-      "body": "The five findings with the largest effect on revenue.",
+      "body": "Unusual days, lasting shifts, dead stock and churn risk, largest effect first.",
       "all": "All insights",
-      "empty": "No findings yet."
+      "empty": "Nothing needs action right now."
     },
     "contributors": {
       "title": "Top contributors",
+      "allTime": "All time ({start} – {end})",
       "unit": "Positive sales (returns not deducted); bar texture shows the ABC class",
       "more": "Details",
       "aria": "Sales by {dim}, largest first",

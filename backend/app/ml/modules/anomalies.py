@@ -24,7 +24,7 @@ from app.ml.modules.common import (
 )
 from app.ml.roles import DIMENSION_ROLES, RoleMap
 
-TOP_EVENTS = 5
+TOP_EVENTS = 10
 CONTRIBUTORS = 3
 BASELINE_PERIODS = {"day": 28, "week": 4, "month": 3}
 WINDOW = {"day": 14, "week": 6, "month": 4}
@@ -544,8 +544,15 @@ def _summary_insight(
     ]
     rule = (
         "both the robust z-score and the Isolation Forest flag it"
+        + (
+            f" and it is at least {detect.DAY_MIN_RATIO:g}x or under "
+            f"1/{detect.DAY_MIN_RATIO:g} of the expected day"
+            if unit == "day"
+            else ""
+        )
         if plan.forest
-        else "its robust z-score is 3.5 or more (too little history for the Isolation Forest, "
+        else f"its robust z-score is {detect.Z_THRESHOLD:g} or more (too little history for the "
+        "Isolation Forest, "
         "so confidence is low)"
     )
     summary = (
