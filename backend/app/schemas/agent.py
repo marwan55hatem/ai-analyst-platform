@@ -88,6 +88,17 @@ class MessageOut(BaseModel):
     created_at: datetime
 
 
+class AiUsageOut(BaseModel):
+    """Today's model use of the caller's company; names only, never a key."""
+
+    tokens_used: int = Field(description="Tokens used or reserved today (UTC).")
+    daily_budget: int
+    resets_at: datetime
+    provider: str
+    model: str | None
+    model_strong: str | None
+
+
 class ChatRequest(BaseModel):
     """One question in a conversation."""
 
@@ -95,3 +106,7 @@ class ChatRequest(BaseModel):
 
     conversation_id: uuid.UUID
     message: str = Field(min_length=1, max_length=MAX_QUESTION_CHARS)
+    retry: bool = Field(
+        default=False,
+        description="Ask the conversation's last question again instead of storing a new one.",
+    )

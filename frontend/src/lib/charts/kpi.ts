@@ -18,6 +18,11 @@ const HIGHER_IS_BETTER: Record<KpiKey, boolean> = {
   margin_pct: true,
 };
 
+/** Whether the range has a window to compare with: the backend gives no change when it has not. */
+export function hasComparison(kpis: readonly Pick<Kpi, "change">[]): boolean {
+  return kpis.some((kpi) => kpi.change !== null && kpi.change !== undefined);
+}
+
 export function direction(kpi: Pick<Kpi, "change">): Direction {
   if (kpi.change === null || kpi.change === undefined || !Number.isFinite(kpi.change)) return "none";
   if (Math.abs(kpi.change) < FLAT_THRESHOLD) return "flat";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AnomalyEvent, Insight, Kpi, SeriesPoint } from "@/lib/api/types";
 
-import { direction, formatChange, formatValue, isGood, sparkValues, type Formatters } from "./kpi";
+import { direction, formatChange, formatValue, hasComparison, isGood, sparkValues, type Formatters } from "./kpi";
 import { byDimension, itemsOf, paretoBars } from "./pareto";
 import { autoGrain, daysIn, grainAllowed, presetRange, severity, validDay } from "./range";
 import { rfmGrid } from "./rfm";
@@ -33,6 +33,12 @@ function kpi(over: Partial<Kpi>): Kpi {
 }
 
 describe("kpi logic", () => {
+  it("has a comparison only when some KPI shows a change", () => {
+    expect(hasComparison([{ change: null }, { change: 0 }])).toBe(true);
+    expect(hasComparison([{ change: null }, { change: null }])).toBe(false);
+    expect(hasComparison([])).toBe(false);
+  });
+
   it("reads the direction of a change, with a flat band and no change at all", () => {
     expect(direction(kpi({ change: 5 }))).toBe("up");
     expect(direction(kpi({ change: -3 }))).toBe("down");

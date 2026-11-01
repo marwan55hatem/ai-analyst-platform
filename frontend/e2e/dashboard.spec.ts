@@ -71,7 +71,7 @@ test("dashboard shows KPIs, trend, contributors and attention, and renders fast"
   const ask = drawer.getByTestId("ask-analyst");
   await expect(ask).toHaveAttribute("href", /\/chat\?insight=[0-9a-f-]{36}$/);
   await ask.click();
-  await expect(page.getByTestId("chat-insight")).toBeVisible();
+  await expect(page.getByTestId("insight-chip")).toBeVisible();
 });
 
 test("insights feed filters on the server and keeps the drawer in the URL", async ({ page, browser }, testInfo) => {
@@ -100,4 +100,13 @@ test("insights feed filters on the server and keeps the drawer in the URL", asyn
   await expect(page).toHaveURL(/insight=[0-9a-f-]{36}/);
   await page.reload();
   await expect(page.getByTestId("insight-drawer")).toBeVisible();
+});
+
+test("all data says there is no previous period", async ({ page, browser }, testInfo) => {
+  testInfo.setTimeout(10 * 60_000);
+  await login(page, await analysedUser(browser, GROUND_TRUTH));
+  await page.goto("/dashboard?range=all");
+  const summary = page.getByTestId("range-summary");
+  await expect(summary).toContainText("no previous period");
+  await expect(summary).not.toContainText("compared with");
 });

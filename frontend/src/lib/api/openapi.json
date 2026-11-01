@@ -1,6 +1,61 @@
 {
   "components": {
     "schemas": {
+      "AiUsageOut": {
+        "description": "Today's model use of the caller's company; names only, never a key.",
+        "properties": {
+          "daily_budget": {
+            "title": "Daily Budget",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "model_strong": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Strong"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "resets_at": {
+            "format": "date-time",
+            "title": "Resets At",
+            "type": "string"
+          },
+          "tokens_used": {
+            "description": "Tokens used or reserved today (UTC).",
+            "title": "Tokens Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tokens_used",
+          "daily_budget",
+          "resets_at",
+          "provider",
+          "model",
+          "model_strong"
+        ],
+        "title": "AiUsageOut",
+        "type": "object"
+      },
       "AnalysisRunListItem": {
         "description": "One run in a dataset's run list.",
         "properties": {
@@ -642,6 +697,12 @@
             "minLength": 1,
             "title": "Message",
             "type": "string"
+          },
+          "retry": {
+            "default": false,
+            "description": "Ask the conversation's last question again instead of storing a new one.",
+            "title": "Retry",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3420,6 +3481,43 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/ai/usage": {
+      "get": {
+        "description": "Tokens used against the company's daily budget, and the provider and model in use.",
+        "operationId": "ai_usage_api_v1_ai_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiUsageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Today's AI usage and model names",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
     "/api/v1/analysis-runs/{run_id}": {
       "get": {
         "description": "Return one analysis run of the caller's tenant.",
@@ -4933,7 +5031,7 @@
     },
     "/api/v1/conversations": {
       "get": {
-        "description": "Most recently updated first; `mine=true` lists only the caller's conversations.",
+        "description": "Most recently updated first; `mine=true` and `dataset_id` narrow the list.",
         "operationId": "list_conversations_api_v1_conversations_get",
         "parameters": [
           {
@@ -4944,6 +5042,23 @@
               "default": false,
               "title": "Mine",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dataset_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
             }
           },
           {

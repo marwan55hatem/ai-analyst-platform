@@ -21,6 +21,8 @@ EVENT_FIELDS = {
         "model",
         "scripted",
         "untraced_numbers",
+        "numbers_checked",
+        "confidence",
         "tool_calls",
         "usage",
         "cost_usd_approx",

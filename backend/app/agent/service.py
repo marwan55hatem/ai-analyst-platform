@@ -1,7 +1,8 @@
 """Chat orchestration: load the conversation, run the agent, stream events, persist everything."""
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import closing
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
@@ -66,15 +67,19 @@ def history_messages(rows: list[Message]) -> list[ChatMessage]:
     A window that started with a tool result or an assistant tool call would be rejected by the
     provider, so leading rows before the first user message are dropped. Bad tool calls are dropped
     with their results: while one stays in the history Groq refuses every later request, which
-    would break the conversation for good.
+    would break the conversation for good. Partial answers are not replayed.
     """
     first_user = next((i for i, row in enumerate(rows) if row.role == "user"), len(rows))
+    answered = {row.tool_call_id for row in rows if row.role == "tool"}
     result: list[ChatMessage] = []
     dropped: set[str | None] = set()
     for row in rows[first_user:]:
         if row.role == "assistant":
+            if row.evidence.get("partial"):
+                continue  # cut off, so its numbers were never verified
             calls = [ToolCall(c["id"], c["name"], c["arguments"]) for c in row.tool_calls or []]
-            kept = [c for c in calls if is_replayable(c, TOOLS_BY_NAME)]
+            # A turn stopped between calls leaves some without a result; a provider refuses those.
+            kept = [c for c in calls if is_replayable(c, TOOLS_BY_NAME) and c.id in answered]
             dropped.update(c.id for c in calls if c not in kept)
             if calls and not kept and not row.content:
                 continue
@@ -99,6 +104,7 @@ class ChatSession:
         conversation_id: uuid.UUID,
         question: str,
         *,
+        retry: bool = False,
         settings: Settings | None = None,
         llm: LLMClient | None = None,
         sandbox: object | None = None,
@@ -109,6 +115,7 @@ class ChatSession:
         self.user_id = user.id
         self.conversation_id = conversation_id
         self.question = question
+        self.retry = retry
         self.settings = settings or get_settings()
         self._llm = llm
         self._sandbox = sandbox
@@ -116,15 +123,23 @@ class ChatSession:
 
     def frames(self) -> Iterator[str]:
         """Yield SSE frames."""
-        for event in self.events():
-            yield event.sse()
+        with closing(self.events()) as stream:
+            for event in stream:
+                yield event.sse()
 
-    def events(self) -> Iterator[AgentEvent]:
+    def events(self) -> Generator[AgentEvent, None, None]:
         """Run the question and yield its events; everything is stored even when it fails."""
         with self._factory() as db:  # type: ignore[operator]
             yield from self._run(db)
 
-    def _run(self, db: Session) -> Iterator[AgentEvent]:
+    def _retried_question(self, rows: list[Message]) -> Message | None:
+        """Return the stored question this request repeats, if it is a retry of the last one."""
+        if not self.retry:
+            return None
+        last = next((row for row in reversed(rows) if row.role == "user"), None)
+        return last if last is not None and last.content == self.question else None
+
+    def _run(self, db: Session) -> Generator[AgentEvent, None, None]:
         conversations = ConversationRepository(db, self.tenant_id)
         conversation = conversations.get(self.conversation_id)
         if conversation is None:
@@ -132,18 +147,28 @@ class ChatSession:
             return
         messages = MessageRepository(db, self.tenant_id)
         prior = messages.for_conversation(conversation.id)
-        seq = messages.next_seq(conversation.id)
-        messages.add(
-            conversation_id=conversation.id,
-            seq=seq,
-            role="user",
-            content=self.question,
-            tool_calls=[],
-            evidence={},
-            caveats=[],
-        )
-        if not prior:
-            conversation.title = self.question[:TITLE_CHARS]
+        retried = self._retried_question(prior)
+        if retried is not None:
+            attempt = [row for row in prior if row.seq > retried.seq]
+            if any("untraced_numbers" in row.evidence for row in attempt):
+                yield events.error("already_answered", "This question already has an answer.")
+                return
+            messages.delete_after(conversation.id, retried.seq)
+            prior = [row for row in prior if row.seq < retried.seq]
+            seq = retried.seq
+        else:
+            seq = messages.next_seq(conversation.id)
+            messages.add(
+                conversation_id=conversation.id,
+                seq=seq,
+                role="user",
+                content=self.question,
+                tool_calls=[],
+                evidence={},
+                caveats=[],
+            )
+            if not prior:
+                conversation.title = self.question[:TITLE_CHARS]
         db.commit()
         try:
             llm = self._llm or get_llm_client()
@@ -188,16 +213,24 @@ class ChatSession:
         system = build_system_prompt(profile, dataset, conversation.summary)
         final: AgentEvent | None = None
         failure: AgentEvent | None = None
+        stopped = False
+        stream = loop.run(system, history_messages(window), self.question)
         try:
-            for event in loop.run(system, history_messages(window), self.question):
+            for event in stream:
                 if event.type == "final":
                     final = event
                     continue
                 yield event
+        except GeneratorExit:  # the client pressed Stop or went away
+            stopped = True
+            raise
         except Exception:
             logger.exception("agent_turn_failed")
             failure = events.error("internal_error", "The answer failed unexpectedly; try again.")
         finally:
+            stream.close()  # runs the loop's own cleanup first: it settles the budget
+            if final is None:
+                loop.close_turn("stopped" if stopped else "failed")
             db.rollback()  # drop anything a failed tool left half-done before persisting
             last_id = self._persist(db, conversation, loop.outcome.records, seq + 1)
         if failure is not None:

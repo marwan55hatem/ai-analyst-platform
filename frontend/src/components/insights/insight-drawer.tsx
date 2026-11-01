@@ -1,15 +1,18 @@
 "use client";
 
-import { Check, Copy, MessagesSquare } from "lucide-react";
+import { MessagesSquare } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useState } from "react";
+import { useId } from "react";
 
 import { DataTable } from "@/components/charts/chart-frame";
+import { CopyButton } from "@/components/common/copy-button";
 import { ErrorState } from "@/components/common/error-state";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { withDataset } from "@/lib/active-dataset";
 import type { EvidenceQuery, Insight } from "@/lib/api/types";
 import { useFormat } from "@/lib/format";
 import { useInsight } from "@/lib/queries";
@@ -24,32 +27,15 @@ function cell(value: unknown): string | number {
   return String(value);
 }
 
-function CopyButton({ text }: { text: string }) {
-  const t = useTranslations("insights");
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => setCopied(true));
-      }}
-    >
-      {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-      {copied ? t("evidence.copied") : t("evidence.copy")}
-    </Button>
-  );
-}
-
 /** One query behind an insight: what it shows, the exact SQL and its first rows. */
-export function EvidenceBlock({ query, index }: { query: EvidenceQuery; index: number }) {
+export function EvidenceBlock({ query }: { query: EvidenceQuery }) {
   const t = useTranslations("insights");
   const fmt = useFormat();
+  const heading = useId();
   const numeric = query.rows[0]?.map((v, i) => (typeof v === "number" ? i : -1)).filter((i) => i >= 0) ?? [];
   return (
-    <section className="space-y-2" aria-labelledby={`evidence-${index}`} data-testid="evidence">
-      <h4 id={`evidence-${index}`} className="text-sm font-medium">
+    <section className="space-y-2" aria-labelledby={heading} data-testid="evidence">
+      <h4 id={heading} className="text-sm font-medium">
         <EngineText>{query.purpose}</EngineText>
       </h4>
       <div className="rounded-md border bg-muted">
@@ -113,7 +99,7 @@ export function InsightDetail({ insight }: { insight: Insight }) {
       <div className="space-y-4">
         <h3 className="text-base font-semibold">{t("evidence.title")}</h3>
         {queries.length ? (
-          queries.map((q, i) => <EvidenceBlock key={i} query={q} index={i} />)
+          queries.map((q, i) => <EvidenceBlock key={i} query={q} />)
         ) : (
           <p className="text-sm text-muted-foreground">{t("evidence.none")}</p>
         )}
@@ -127,6 +113,7 @@ export function InsightDrawer({ id, onClose }: { id: string | null; onClose: () 
   const t = useTranslations("insights");
   const found = useInsight(id);
   const returnFocus = useReturnFocus();
+  const dataset = useSearchParams().get("dataset") ?? undefined;
   return (
     <Sheet open={Boolean(id)} onOpenChange={(open) => (open ? null : onClose())}>
       <SheetContent
@@ -154,7 +141,7 @@ export function InsightDrawer({ id, onClose }: { id: string | null; onClose: () 
           ) : found.data ? (
             <>
               <Button asChild className="w-full sm:w-auto" data-testid="ask-analyst">
-                <Link href={`/chat?insight=${found.data.id}`}>
+                <Link href={withDataset(`/chat?insight=${found.data.id}`, dataset)}>
                   <MessagesSquare aria-hidden="true" />
                   {t("ask")}
                 </Link>

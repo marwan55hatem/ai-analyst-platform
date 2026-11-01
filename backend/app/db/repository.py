@@ -484,12 +484,19 @@ class ConversationRepository(TenantRepository[Conversation]):
     model = Conversation
 
     def list_recent(
-        self, *, user_id: uuid.UUID | None = None, limit: int = 50, offset: int = 0
+        self,
+        *,
+        user_id: uuid.UUID | None = None,
+        dataset_id: uuid.UUID | None = None,
+        limit: int = 50,
+        offset: int = 0,
     ) -> list[Conversation]:
-        """Return conversations, most recently updated first (optionally one user's)."""
+        """Return conversations, most recently updated first (optionally by user or dataset)."""
         stmt = self._select()
         if user_id is not None:
             stmt = stmt.where(Conversation.user_id == user_id)
+        if dataset_id is not None:
+            stmt = stmt.where(Conversation.dataset_id == dataset_id)
         stmt = stmt.order_by(Conversation.updated_at.desc(), Conversation.id)
         return list(self.session.scalars(stmt.limit(limit).offset(offset)))
 
@@ -511,6 +518,16 @@ class MessageRepository(TenantRepository[Message]):
         if limit is not None:
             stmt = stmt.limit(limit)
         return list(self.session.scalars(stmt))
+
+    def delete_after(self, conversation_id: uuid.UUID, seq: int) -> None:
+        """Delete a conversation's messages after `seq` (what a failed attempt left behind)."""
+        self.session.execute(
+            delete(Message).where(
+                Message.tenant_id == self.tenant_id,
+                Message.conversation_id == conversation_id,
+                Message.seq > seq,
+            )
+        )
 
     def next_seq(self, conversation_id: uuid.UUID) -> int:
         """Return the next sequence number in a conversation."""
