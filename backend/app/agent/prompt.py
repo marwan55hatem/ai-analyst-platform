@@ -7,7 +7,7 @@ from app.agent.untrusted import neutralise
 from app.models.agent import BusinessProfile
 from app.models.dataset import Dataset
 
-PROMPT_VERSION = "system_v1"
+PROMPT_VERSION = "system_v2"
 _PROMPTS = Path(__file__).with_name("prompts")
 LANGUAGES = {"en": "English", "ar": "Arabic"}
 

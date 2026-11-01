@@ -14,6 +14,30 @@ from app.llm.types import ToolSpec
 from app.models.agent import BusinessProfile
 from app.models.dataset import Dataset, DatasetVersion
 
+ENVELOPE_CHARS = 400  # room for the delimiters around a result and a note
+
+
+def content_size(content: Any) -> int:
+    """Return the characters a tool result takes once serialised for the model."""
+    return len(json.dumps(content, ensure_ascii=False, default=str))
+
+
+def fit_rows(content: dict[str, Any], rows: list[Any], limit: int) -> str | None:
+    """Drop whole rows from the end of `rows`, a list inside `content`, until `content` fits.
+
+    A cut in the middle of a row invites the model to complete it: a live run invented a customer's
+    figures that way. Returns a note for the model when rows were dropped.
+    """
+    total = len(rows)
+    while len(rows) > 1 and content_size(content) > limit - ENVELOPE_CHARS:
+        rows.pop()
+    if len(rows) == total:
+        return None
+    return (
+        f"Only the first {len(rows)} of {total} rows fit here. Tell the user the list is partial; "
+        "never guess the rest. Ask for fewer rows or a narrower filter to see others."
+    )
+
 
 class ToolArgs(BaseModel):
     """Base for tool arguments: unknown fields are rejected."""

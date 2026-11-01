@@ -7,6 +7,7 @@ import structlog
 from app.core.config import Settings, get_settings
 from app.llm.base import LLMClient, LLMError, LLMNotConfiguredError
 from app.llm.fake import FakeLLMClient
+from app.llm.openai_compatible import OpenAICompatibleClient
 from app.llm.scripted import ScriptedAnalyst
 
 __all__ = [
@@ -14,12 +15,13 @@ __all__ = [
     "LLMClient",
     "LLMError",
     "ScriptedAnalyst",
+    "build_real_client",
     "ensure_provider_allowed",
     "get_llm_client",
     "is_scripted",
 ]
 
-REAL_PROVIDERS = {"deepseek", "openai_compatible"}
+REAL_PROVIDERS = {"deepseek", "groq", "openai_compatible"}
 logger = structlog.get_logger()
 _lock = threading.Lock()
 _real: dict[tuple[str, ...], LLMClient] = {}
@@ -57,16 +59,38 @@ def get_llm_client() -> LLMClient | None:
         return ScriptedAnalyst()
     if provider in REAL_PROVIDERS:
         return _real_client(settings)
-    raise LLMError(f"Unknown LLM_PROVIDER '{provider}' (use deepseek, fake or none).")
+    raise LLMError(f"Unknown LLM_PROVIDER '{provider}' (use deepseek, groq, fake or none).")
+
+
+def build_real_client(settings: Settings) -> OpenAICompatibleClient:
+    """Return a new client for the configured provider.
+
+    Each vendor gets its own key: a Groq client never falls back to LLM_API_KEY, which may hold
+    another vendor's key.
+    """
+    groq = settings.llm_provider.lower() == "groq"
+    return OpenAICompatibleClient(
+        base_url=settings.llm_base_url,
+        api_key=settings.groq_api_key if groq else settings.llm_api_key,
+        thinking=settings.llm_thinking == "enabled",
+        timeout_s=settings.llm_timeout_s,
+        max_retries=settings.llm_max_retries,
+        max_output_tokens=settings.llm_max_output_tokens,
+        json_model=settings.llm_model or "deepseek-flash",
+        dialect="groq" if groq else "deepseek",
+        reasoning_effort=settings.llm_reasoning_effort,
+        key_env="GROQ_API_KEY" if groq else "LLM_API_KEY",
+    )
 
 
 def _real_client(settings: Settings) -> LLMClient:
-    from app.llm.openai_compatible import OpenAICompatibleClient
-
     key = (
+        settings.llm_provider.lower(),
         settings.llm_base_url,
         settings.llm_api_key,
+        settings.groq_api_key,
         settings.llm_thinking,
+        settings.llm_reasoning_effort,
         str(settings.llm_timeout_s),
         str(settings.llm_max_retries),
         str(settings.llm_max_output_tokens),
@@ -75,14 +99,6 @@ def _real_client(settings: Settings) -> LLMClient:
     with _lock:
         client = _real.get(key)
         if client is None:
-            client = OpenAICompatibleClient(
-                base_url=settings.llm_base_url,
-                api_key=settings.llm_api_key,
-                thinking=settings.llm_thinking == "enabled",
-                timeout_s=settings.llm_timeout_s,
-                max_retries=settings.llm_max_retries,
-                max_output_tokens=settings.llm_max_output_tokens,
-                json_model=settings.llm_model or "deepseek-flash",
-            )
+            client = build_real_client(settings)
             _real[key] = client
     return client

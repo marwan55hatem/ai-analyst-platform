@@ -5,7 +5,9 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal
 
-EventType = Literal["token", "tool_call", "tool_result", "chart", "caveat", "final", "error"]
+EventType = Literal[
+    "token", "tool_call", "tool_result", "chart", "caveat", "status", "final", "error"
+]
 
 
 @dataclass(frozen=True)
@@ -26,9 +28,14 @@ def token(text: str) -> AgentEvent:
     return AgentEvent("token", {"text": text})
 
 
-def error(code: str, message: str) -> AgentEvent:
+def error(code: str, message: str, **extra: Any) -> AgentEvent:
     """Build a terminal error event; the stream ends after it."""
-    return AgentEvent("error", {"code": code, "message": message})
+    return AgentEvent("error", {"code": code, "message": message, **extra})
+
+
+def rate_limited(retry_in_s: int) -> AgentEvent:
+    """Build the status event sent once when a provider rate limit makes the answer wait."""
+    return AgentEvent("status", {"code": "rate_limited", "retry_in_s": retry_in_s})
 
 
 def caveat(kind: str, message: str, **extra: Any) -> AgentEvent:

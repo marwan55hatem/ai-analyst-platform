@@ -21,7 +21,7 @@ _ARABIC_DIGITS = str.maketrans(
 # A number with optional sign, thousands separators, decimals, suffix and percent sign.
 _NUMBER = re.compile(
     r"(?<![\w.])([-+\u2212]?)(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*"
-    r"(k|K|thousand|m|M|mn|million|bn|B|billion)?\b\s*(%|percent\b|per cent\b)?"
+    r"(k|K|thousand|m|M|mn|million|bn|B|billion|ألف|مليون|مليار)?\b\s*(%|percent\b|per cent\b)?"
 )
 _SUFFIX = {
     "k": 1e3,
@@ -32,10 +32,18 @@ _SUFFIX = {
     "bn": 1e9,
     "b": 1e9,
     "billion": 1e9,
+    "ألف": 1e3,
+    "مليون": 1e6,
+    "مليار": 1e9,
 }
 EXEMPT_MAX = 12  # small integers: list numbers, months, "top 5", "3 scenarios"
+YEAR_RANGE = (1990, 2099)  # "April 2026" is a date, not a figure; "2,026" keeps its comma
 MAX_SOURCE_NUMBERS = 50_000
 _CAVEAT_TAIL = re.compile(r"\n\n_Caveat: .*$", re.DOTALL)
+# Real models write 2024‑11‑29 with non-breaking hyphens and 12 307.42 with thin or non-breaking
+# spaces. Unnormalised, those split into pieces that look like invented numbers.
+_HYPHENS = str.maketrans(dict.fromkeys("‐‑‒–", "-"))
+_SPACED_THOUSANDS = re.compile(r"(?<=\d)[   ](?=\d{3}(?!\d))")
 
 
 @dataclass(frozen=True)
@@ -51,7 +59,8 @@ class FoundNumber:
 
 def extract_numbers(text: str) -> list[FoundNumber]:
     """Return the numbers written in `text`, skipping ISO dates, times and version-like tokens."""
-    normalised = text.translate(_ARABIC_DIGITS)
+    normalised = text.translate(_ARABIC_DIGITS).translate(_HYPHENS)
+    normalised = _SPACED_THOUSANDS.sub(",", normalised)
     normalised = re.sub(r"\b\d{4}-\d{2}(-\d{2})?\b", " ", normalised)  # dates
     normalised = re.sub(r"\b\d{1,2}:\d{2}(:\d{2})?\b", " ", normalised)  # times
     found: list[FoundNumber] = []
@@ -120,6 +129,8 @@ def untraced_numbers(answer: str, tool_results: list[Any], question: str = "") -
     missing: list[str] = []
     for found in extract_numbers(body):
         if found.decimals == 0 and not found.percent and 0 <= found.value <= EXEMPT_MAX:
+            continue
+        if found.text.isdigit() and YEAR_RANGE[0] <= found.value <= YEAR_RANGE[1]:
             continue
         if round(found.value, 6) in asked:
             continue

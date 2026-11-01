@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.agent import events
 from app.agent.budget import TokenBudget
+from app.agent.context import is_replayable
 from app.agent.events import AgentEvent, jsonable
 from app.agent.loop import AgentLoop, Record
 from app.agent.prompt import build_system_prompt
 from app.agent.sandbox_client import SandboxClient
-from app.agent.tools import AgentContext
+from app.agent.tools import TOOLS_BY_NAME, AgentContext
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ForbiddenError
 from app.db.repository import (
@@ -29,7 +30,7 @@ from app.llm import LLMError, ScriptedAnalyst, get_llm_client
 from app.llm.base import LLMClient
 from app.llm.router import choose_model
 from app.llm.scripted import SUMMARY_MARKER
-from app.llm.types import ChatMessage, TextDelta, ToolCall
+from app.llm.types import ChatMessage, Completion, ToolCall
 from app.models.agent import Conversation, Message
 from app.models.user import Role, User
 from app.services.datasets import current_ready_version
@@ -63,17 +64,26 @@ def history_messages(rows: list[Message]) -> list[ChatMessage]:
     """Rebuild provider messages from stored rows, starting at a user message.
 
     A window that started with a tool result or an assistant tool call would be rejected by the
-    provider, so leading rows before the first user message are dropped.
+    provider, so leading rows before the first user message are dropped. Bad tool calls are dropped
+    with their results: while one stays in the history Groq refuses every later request, which
+    would break the conversation for good.
     """
     first_user = next((i for i, row in enumerate(rows) if row.role == "user"), len(rows))
     result: list[ChatMessage] = []
+    dropped: set[str | None] = set()
     for row in rows[first_user:]:
         if row.role == "assistant":
             calls = [ToolCall(c["id"], c["name"], c["arguments"]) for c in row.tool_calls or []]
+            kept = [c for c in calls if is_replayable(c, TOOLS_BY_NAME)]
+            dropped.update(c.id for c in calls if c not in kept)
+            if calls and not kept and not row.content:
+                continue
             result.append(
-                ChatMessage("assistant", row.content, tool_calls=calls, reasoning=row.reasoning)
+                ChatMessage("assistant", row.content, tool_calls=kept, reasoning=row.reasoning)
             )
         elif row.role == "tool":
+            if row.tool_call_id in dropped:
+                continue
             result.append(ChatMessage("tool", row.content, tool_call_id=row.tool_call_id))
         else:
             result.append(ChatMessage("user", row.content))
@@ -258,9 +268,8 @@ class ChatSession:
         text, used = "", 0
         try:
             for event in llm.chat(messages, [], model=choose_model("", self.settings, "summary")):
-                if isinstance(event, TextDelta):
-                    continue
-                text, used = event.text, event.usage.total_tokens
+                if isinstance(event, Completion):
+                    text, used = event.text, event.usage.total_tokens
         except LLMError:
             logger.warning("conversation_summary_failed")
         finally:

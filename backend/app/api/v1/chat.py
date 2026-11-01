@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.agent.service import ChatSession, message_cost, require_manage
-from app.agent.streams import get_stream_slots
+from app.agent.streams import get_stream_slots, with_heartbeat
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession, Limiter, require_role
 from app.core.config import get_settings
@@ -25,7 +25,8 @@ from app.schemas.agent import (
 )
 
 router = APIRouter(tags=["chat"], responses={**responses.UNAUTHORIZED})
-SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+# no-transform stops the Next.js proxy's compression, which otherwise holds the whole stream back.
+SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
 
 
 # -- company profile ------------------------------------------------------------------------------
@@ -183,7 +184,9 @@ def list_messages(
         **responses.RATE_LIMITED,
         200: {
             "content": {"text/event-stream": {}},
-            "description": "Events: token, tool_call, tool_result, chart, caveat, final, error",
+            "description": (
+                "Events: token, tool_call, tool_result, chart, caveat, status, final, error"
+            ),
         },
     },
     response_class=StreamingResponse,
@@ -205,4 +208,10 @@ def chat_stream(
         finally:
             slots.release(user.id, token)
 
-    return StreamingResponse(frames(), media_type="text/event-stream", headers=SSE_HEADERS)  # type: ignore[arg-type]
+    # The slot is released inside the stream's thread: a client that left still holds it until a
+    # running tool has finished.
+    return StreamingResponse(
+        with_heartbeat(frames()),  # type: ignore[arg-type]
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )

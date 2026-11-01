@@ -51,6 +51,7 @@ class FakeTurn:
     reasoning: str | None = None
     error: LLMError | None = None
     usage: Usage | None = None
+    finish_reason: str | None = None
 
 
 TurnScript = list[FakeTurn] | Callable[[list[ChatMessage]], FakeTurn]
@@ -126,5 +127,5 @@ def stream_turn(
         usage=usage,
         model=model,
         latency_ms=0,
-        finish_reason="tool_calls" if calls else "stop",
+        finish_reason=turn.finish_reason or ("tool_calls" if calls else "stop"),
     )

@@ -25,6 +25,7 @@ Non-functional
 Constraints in this step
 - Provider: DeepSeek through its OpenAI-compatible API. No real calls in Step 8 (the account has
   no balance); `LLM_PROVIDER=fake` runs a deterministic scripted analyst for tests and walkthroughs.
+- Step 8b adds Groq (`LLM_PROVIDER=groq`, `openai/gpt-oss-120b`), the first provider tested live.
 
 ## 2. Components
 
@@ -32,7 +33,7 @@ Constraints in this step
 browser ──POST /chat/stream (SSE)──▶ api
                                      ├─ ChatService: auth, rate limit, stream slot, persistence
                                      ├─ AgentLoop ──▶ LLMClient
-                                     │                 ├─ OpenAICompatibleClient (DeepSeek, httpx)
+                                     │                 ├─ OpenAICompatibleClient (Groq, DeepSeek; httpx)
                                      │                 ├─ ScriptedAnalyst (LLM_PROVIDER=fake)
                                      │                 └─ FakeLLMClient (scripted test doubles)
                                      ├─ ToolRegistry ─▶ SafeQueryService (DuckDB, read-only)
@@ -70,6 +71,50 @@ else. The sandbox never sees the storage volume.
   approximate cost from per-million prices in settings (defaults are approximate peak rates).
 - `fake` logs a loud warning at startup and refuses to start when `APP_ENV=production`.
 
+### Groq (Step 8b)
+
+`LLM_PROVIDER=groq` uses the same client with its `groq` dialect. `PROVIDER_PRESETS` in
+`app/core/config.py` fills whatever is not set explicitly: base URL, `openai/gpt-oss-120b` as both
+models (there is no cheaper tier to route between), prices and the size limits below. Only
+`GROQ_API_KEY` is ever sent to Groq; it never falls back to `LLM_API_KEY`.
+
+- Request: `max_completion_tokens` and `reasoning_effort` (`LLM_REASONING_EFFORT`, `low` for
+  `complete_json`) replace `max_tokens` and `thinking`. `include_reasoning: false` keeps reasoning
+  out of responses, so it is not stored and cannot reach an answer; `delta.reasoning` is still
+  parsed apart from the text. Reasoning is never replayed. Multi-round tool calling was confirmed
+  to work without it.
+- Size: Groq reports 8,000 tokens per minute for this model, refilling continuously (about 133 per
+  second). `max_completion_tokens` does not count against that when a request is checked: a 12,000
+  cap on a tiny prompt passed, so the output cap (3,000) only has to bound real use. The fixed
+  prompt and 11 tool schemas cost about 1,560 real tokens (2,100 by the character estimate).
+  `AGENT_TOOL_OUTPUT_CHARS` is 5,000 and `LLM_MAX_PROMPT_TOKENS` is 5,000 estimated tokens: past
+  that, `AgentLoop` trims older tool results to 1,500 characters, then the latest too
+  (`app/agent/context.py`). The closing delimiter always survives a trim.
+- Fitting results: tools never leave a cut row for the model to finish. `fit_rows` drops whole rows
+  from the end and adds a note saying the list is partial; `fit_insights` keeps every insight and
+  sheds detail (payload, then summary), because a cut list hides whatever ranks last, as dead stock
+  did in the first live run; `compact_findings` reduces churn reasons to their sentences.
+- Errors (mapped from the body's `error.code` first, because in-stream errors have no status):
+
+| Case | Code | What happens |
+| --- | --- | --- |
+| 401 | `provider_auth_failed` | message names `GROQ_API_KEY` |
+| 429 with `Retry-After` up to 65 s | – | `status` event, then a retry; the heartbeat covers the wait |
+| 429 with a longer wait (daily limit) | `provider_rate_limited` | no wait; "Try again in N seconds" or "about M minutes", plus `retry_after_s` |
+| 413, `context_length_exceeded` | `provider_request_too_large` | loop trims all tool results to 1,000 characters and retries once |
+| 404, `model_not_found`, `model_decommissioned` | `provider_model_not_found` | message names `LLM_MODEL` |
+| `tool_use_failed` (HTTP 400 or stream chunk) | `provider_bad_tool_call` | loop retries once with a short repair note |
+| timeout | `provider_timeout` | not retried |
+
+- Bad tool calls: nothing is retried once answer text has reached the user. A call in a 200 response
+  that names no tool or has unparsable arguments returns a tool error, and two such rounds in a row
+  end in `provider_bad_tool_call`. Such calls are removed from the prompt and from history, because
+  Groq refuses every later request while one is in the history. Arguments that are valid JSON but
+  fail the schema stay ordinary recoverable tool errors.
+- Budget: usage comes from the last chunk (`usage`, or `x_groq.usage`). A call that reports no usage
+  is charged its reservation, never zero. Output that stops at the cap adds an `answer_truncated`
+  caveat.
+
 ## 4. Tool contracts (`backend/app/agent/tools/`)
 
 Every tool has a Pydantic argument model (`extra="forbid"`, bounds) that produces the JSON schema
@@ -100,7 +145,7 @@ run exists the tool says so instead of guessing.
 
 1. Load the conversation (tenant-scoped), the company profile, the summary and the last
    `AGENT_HISTORY_MESSAGES` messages.
-2. Build the prompt: the versioned system prompt (`app/agent/prompts/system_v1.md`), the profile
+2. Build the prompt: the versioned system prompt (`app/agent/prompts/system_v2.md`), the profile
    block, the summary, the history and the question.
 3. Up to `AGENT_MAX_ITERATIONS` (8) rounds: reserve budget, call the model (router picks the
    model), stream tokens; for each tool call validate, run, emit `tool_call`, `tool_result`,
@@ -174,6 +219,14 @@ PII: columns flagged as personal data are blocked from `run_sql` results (allowe
 `COUNT`/`COUNT DISTINCT`) and from `run_python` data unless the company profile opts in
 (`allow_pii`, default off). Per-customer results use the existing pseudonym rule.
 
+Third-party cloud: with `LLM_PROVIDER=groq`, everything the model sees leaves our infrastructure for
+Groq in the United States. The rules are provider-independent and enforced before the wire;
+`test_groq_wire_never_carries_pii` asserts planted emails and phones are absent from every HTTP body
+of a full turn. These rules hide columns flagged as personal data: they are not an aggregate-only
+rule. Row-level values of unflagged columns can be sent (see `docs/known-limits.md`). Groq does not
+retain inference data by default, but may log inputs and outputs for up to 30 days for reliability
+or abuse checks unless Zero Data Retention is turned on in its console.
+
 Cost abuse: `agent_usage_daily` holds tokens per tenant and day. Before every model call an
 estimate is reserved with one atomic `UPDATE … WHERE tokens + estimate <= budget`, so concurrent
 streams cannot overspend; after the call the reservation is settled to the real usage. Per-user
@@ -190,14 +243,46 @@ is `event: <type>` plus one JSON `data:` line.
 | tool_call | `{id, name, arguments}` |
 | tool_result | `{id, name, ok, summary, evidence}` |
 | chart | `{id, spec}` |
-| caveat | `{kind, message, numbers?}` |
+| caveat | `{kind, message, numbers?}` (kinds include `untraced_numbers`, `answer_truncated`) |
+| status | `{code: "rate_limited", retry_in_s}` |
 | final | `{message_id, text, model, usage, cost_usd_approx, untraced_numbers, scripted}` |
-| error | `{code, message}` (budget_exceeded, provider_no_balance, …) |
+| error | `{code, message, retry_after_s?}` (budget_exceeded, provider_no_balance, …) |
 
 Typical order: `token`* → (`tool_call` → `tool_result` → `chart`? → `caveat`?)* → `token`* →
 `caveat`* → `final`. An `error` ends the stream; the user message and any partial answer are still
 stored. Errors before the stream starts (auth, rate limit, too many streams, unknown conversation)
 are normal JSON error responses.
+
+Heartbeat: the agent runs in its own thread (`with_heartbeat` in `app/agent/streams.py`) and hands
+frames over a queue, so the response side stays free while a tool, a forecast job or the model is
+silent. After 15 s without a frame it sends the SSE comment `: keep-alive`, whatever the cause. If
+the client leaves, the agent stops at its next frame, and the stream slot is released in that thread
+only once a running tool has finished.
+
+Rate-limit waits, for the Step 13 chat UI: when the provider asks to wait up to 65 s, one `status`
+frame opens the wait, and the heartbeat covers the rest:
+
+```
+event: status
+data: {"code": "rate_limited", "retry_in_s": 40}
+
+: keep-alive
+
+: keep-alive
+
+event: token
+data: {"text": "Net "}
+```
+
+Show "Waiting for the model, about N seconds" and count down locally. There is no "wait over" event:
+the next `token`, `tool_call`, `final` or `error` ends the wait. Comments are not events, and
+`EventSource` and most SSE parsers skip them. A question can wait more than once.
+
+Through the Next.js proxy: `Cache-Control: no-transform` on the stream stops the proxy's compression,
+which otherwise holds every frame back until the end. The proxy drops a connection that stays silent
+for 30 s, which is why the heartbeat is 15 s. Tested through port 3000 with a local stub of the
+provider: a 60 s silent tool run, a 60 s silent model and a 40 s rate-limit wait all finish, with no
+gap over about 15 s.
 
 REST: `POST/GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`,
 `GET /conversations/{id}/messages`, `GET/PUT /company/profile`.
@@ -262,5 +347,6 @@ Gaps found by the testing-strategy review, added to the plan
 
 Coverage targets: `app/agent` and `app/llm` at least 85% each (gated in `check_coverage.py`).
 
-Live (`@pytest.mark.live_llm`, only with `RUN_LIVE_LLM=1`, never in CI): one tool-calling round
-trip and the ten ground-truth questions on the 3-year planted dataset.
+Live (`@pytest.mark.live_llm`, only with `RUN_LIVE_LLM=1`, never in CI): streaming, an Arabic reply,
+a bad key, one tool-calling round trip and the ten ground-truth questions on the 3-year planted
+dataset, paced to stay inside the provider's rate limit.

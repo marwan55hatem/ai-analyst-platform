@@ -15,6 +15,7 @@ EVENT_FIELDS = {
     "tool_result": {"id", "name", "ok", "summary", "evidence"},
     "chart": {"id", "spec"},
     "caveat": {"kind", "message"},
+    "status": {"code", "retry_in_s"},
     "final": {
         "text",
         "model",
@@ -42,8 +43,8 @@ def parse_sse(text: str) -> list[Event]:
     """Parse an SSE body and check every event against the published contract."""
     events: list[Event] = []
     for frame in text.split("\n\n"):
-        if not frame.strip():
-            continue
+        if not frame.strip() or frame.startswith(":"):
+            continue  # blank separators and `: keep-alive` comments, as a browser would skip them
         lines = frame.split("\n")
         assert lines[0].startswith("event: ") and lines[1].startswith("data: "), frame
         kind = lines[0][len("event: ") :]

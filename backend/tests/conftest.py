@@ -48,6 +48,7 @@ os.environ.update(
         "APP_ENV": "test",
         "LLM_PROVIDER": "fake",
         "LLM_API_KEY": "",
+        "GROQ_API_KEY": "",
         "LLM_BASE_URL": "http://llm.invalid",
         "SANDBOX_URL": "http://sandbox.invalid:1",
     }

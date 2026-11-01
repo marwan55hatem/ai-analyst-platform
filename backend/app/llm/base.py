@@ -1,9 +1,12 @@
 """The provider-neutral LLM interface and typed errors; no vendor SDK is imported outside here."""
 
+import math
 from collections.abc import Iterator
 from typing import Any, Protocol
 
 from app.llm.types import ChatMessage, LLMEvent, ToolSpec
+
+LONG_WAIT_S = 120
 
 
 class LLMError(Exception):
@@ -49,6 +52,28 @@ class LLMRateLimitError(LLMError):
     default_message = "The model provider is rate limiting requests. Try again in a minute."
     retryable = True
 
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        code: str | None = None,
+        status: int | None = None,
+        retry_after_s: int | None = None,
+    ) -> None:
+        """Create the error; `retry_after_s` puts the provider's wait into the user message."""
+        super().__init__(message or _rate_limit_message(retry_after_s), code=code, status=status)
+        self.retry_after_s = retry_after_s
+
+
+def _rate_limit_message(retry_after_s: int | None) -> str | None:
+    if retry_after_s is None:
+        return None
+    if retry_after_s <= LONG_WAIT_S:
+        wait = f"{retry_after_s} seconds"
+    else:
+        wait = f"about {math.ceil(retry_after_s / 60)} minutes"
+    return f"The model provider is rate limiting requests. Try again in {wait}."
+
 
 class LLMUnavailableError(LLMError):
     """5xx or connection failure: the provider is down or overloaded."""
@@ -70,6 +95,30 @@ class LLMBadRequestError(LLMError):
 
     code = "provider_bad_request"
     default_message = "The model provider rejected the request."
+
+
+class LLMRequestTooLargeError(LLMError):
+    """413 or context_length_exceeded: the prompt does not fit the provider's limit."""
+
+    code = "provider_request_too_large"
+    default_message = (
+        "This question needs more context than the model allows. "
+        "Ask something narrower or start a new conversation."
+    )
+
+
+class LLMModelNotFoundError(LLMError):
+    """404 or a retired model: the configured model does not exist at the provider."""
+
+    code = "provider_model_not_found"
+    default_message = "The configured model is not available at the provider. Check LLM_MODEL."
+
+
+class LLMToolCallError(LLMError):
+    """The model produced a malformed tool call or called a tool that does not exist."""
+
+    code = "provider_bad_tool_call"
+    default_message = "The model produced an invalid tool call twice. Try rephrasing the question."
 
 
 class LLMNotConfiguredError(LLMError):
