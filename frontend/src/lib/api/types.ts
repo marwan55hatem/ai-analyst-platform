@@ -17,6 +17,10 @@ export type Preview = S["PreviewOut"];
 export type CleaningPlan = S["CleaningPlanOut"];
 export type FixChoice = S["FixChoice"];
 export type AnalysisRunListItem = S["AnalysisRunListItem"];
+export type Conversation = S["ConversationOut"];
+export type Message = S["MessageOut"];
+export type AiUsage = S["AiUsageOut"];
+export type BusinessProfile = S["BusinessProfileOut"];
 
 export type VersionStatus = "uploaded" | "processing" | "ready" | "failed";
 export type ProfileStatus = "pending" | "running" | "ready" | "failed";

@@ -121,12 +121,11 @@ def _matches(found: FoundNumber, source: float) -> bool:
     return False
 
 
-def untraced_numbers(answer: str, tool_results: list[Any], question: str = "") -> list[str]:
-    """Return the numbers written in `answer` that no tool result of the turn supports."""
+def _checked(answer: str, question: str) -> list[FoundNumber]:
+    """Return the numbers of an answer that must trace to a tool result (exempt ones left out)."""
     body = _CAVEAT_TAIL.sub("", answer)
-    sources = source_numbers(tool_results)
     asked = {round(n.value, 6) for n in extract_numbers(question)}
-    missing: list[str] = []
+    checked: list[FoundNumber] = []
     for found in extract_numbers(body):
         if found.decimals == 0 and not found.percent and 0 <= found.value <= EXEMPT_MAX:
             continue
@@ -134,9 +133,24 @@ def untraced_numbers(answer: str, tool_results: list[Any], question: str = "") -
             continue
         if round(found.value, 6) in asked:
             continue
-        if not any(_matches(found, source) for source in sources):
-            missing.append(found.text)
+        checked.append(found)
+    return checked
+
+
+def untraced_numbers(answer: str, tool_results: list[Any], question: str = "") -> list[str]:
+    """Return the numbers written in `answer` that no tool result of the turn supports."""
+    sources = source_numbers(tool_results)
+    missing = [
+        found.text
+        for found in _checked(answer, question)
+        if not any(_matches(found, source) for source in sources)
+    ]
     return list(dict.fromkeys(missing))
+
+
+def count_checked_numbers(answer: str, question: str = "") -> int:
+    """Return how many different numbers of `answer` the verifier compared with tool results."""
+    return len({found.text for found in _checked(answer, question)})
 
 
 def caveat_text(numbers: list[str]) -> str:

@@ -1,6 +1,7 @@
 // Lighthouse scores for every page in English and Arabic: accessibility must reach 90;
 // performance and best practices are reported.
 // Usage (stack running): npm run lighthouse   [BASE_URL=http://localhost:3000] [LIGHTHOUSE_SAMPLE=file.csv]
+//   [LIGHTHOUSE_PAGES=/chat,/settings] audits those pages only.
 // Uses Playwright's Chromium; signs in once, then audits each page in the same browser so
 // the session is restored from the refresh cookie (storage reset is disabled).
 import { chromium } from "@playwright/test";
@@ -20,6 +21,7 @@ const SAMPLE =
   process.env.LIGHTHOUSE_SAMPLE ??
   (existsSync(GROUND_TRUTH) ? GROUND_TRUTH : path.join(ROOT, "..", "evaluation", "datasets", "samples", "retail_messy.csv"));
 const OUT = path.join(ROOT, ".lighthouse");
+const ONLY = process.env.LIGHTHOUSE_PAGES?.split(",");
 
 async function api(pathname, init = {}) {
   const res = await fetch(`${BASE}${pathname}`, init);
@@ -53,11 +55,24 @@ async function prepare() {
     if (runs[0] && !["pending", "running"].includes(runs[0].status)) break;
     await new Promise((r) => setTimeout(r, 2000));
   }
-  return { user, detail: `/datasets/${dataset.id}` };
+  // One answered conversation, so the chat is also audited with an answer on screen.
+  const headers = { Authorization: `Bearer ${token}` };
+  const chat = await api("/api/v1/conversations", {
+    method: "POST",
+    headers: { ...headers, ...json },
+    body: JSON.stringify({ dataset_id: dataset.id }),
+  });
+  const answer = await fetch(`${BASE}/api/v1/chat/stream`, {
+    method: "POST",
+    headers: { ...headers, ...json },
+    body: JSON.stringify({ conversation_id: chat.id, message: "What is our total net revenue?" }),
+  });
+  await answer.text();
+  return { user, detail: `/datasets/${dataset.id}`, answered: `/chat?c=${chat.id}` };
 }
 
 async function main() {
-  const { user, detail } = await prepare();
+  const { user, detail, answered } = await prepare();
   const browser = await puppeteer.launch({ executablePath: chromium.executablePath(), headless: true });
   const results = [];
   for (const locale of ["en", "ar"]) {
@@ -65,13 +80,15 @@ async function main() {
     const context = await browser.createBrowserContext();
     const page = await context.newPage();
     await context.setCookie({ name: "NEXT_LOCALE", value: locale, domain: new URL(BASE).hostname, path: "/" });
-    for (const url of ["/login", "/register"]) results.push(await audit(page, url, locale));
+    for (const url of ["/login", "/register"].filter((u) => !ONLY || ONLY.includes(u))) {
+      results.push(await audit(page, url, locale));
+    }
     await page.goto(`${BASE}/login`, { waitUntil: "networkidle0" });
     await page.type('input[type="email"]', user.email);
     await page.type('input[autocomplete="current-password"]', user.password);
     await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('button[type="submit"]')]);
-    const pages = ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/insights/forecast", "/insights/segments", "/insights/churn", "/insights/what-if", "/chat", "/reports", "/settings"];
-    for (const url of pages) {
+    const pages = ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/insights/forecast", "/insights/segments", "/insights/churn", "/insights/what-if", "/chat", answered, "/reports", "/settings"];
+    for (const url of pages.filter((u) => !ONLY || ONLY.some((name) => u.split("?")[0] === name))) {
       results.push(await audit(page, url, locale));
     }
     await context.close();

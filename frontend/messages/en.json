@@ -373,10 +373,6 @@
       "title": "Insights",
       "body": "Findings from your analyses, each with its evidence and confidence, will be listed here."
     },
-    "chat": {
-      "title": "Ask the analyst",
-      "body": "Ask questions about your data and get answers backed by the numbers. This opens soon."
-    },
     "reports": {
       "title": "Reports",
       "body": "Scheduled reports and alerts will be managed here."
@@ -398,7 +394,41 @@
     },
     "preferences": "Preferences",
     "language": "Language",
-    "theme": "Theme"
+    "theme": "Theme",
+    "ai": {
+      "usageTitle": "AI usage today",
+      "usedOf": "{used} of {budget} tokens",
+      "usageBar": "AI tokens used today",
+      "resets": "Resets at {time}",
+      "usageNote": "Shared by your whole company. Includes tokens held for answers in progress.",
+      "near": "Most of today's budget is used.",
+      "reached": "Today's budget is used up. Answers resume after the reset.",
+      "loadFailed": "AI usage could not be loaded",
+      "modelTitle": "AI model",
+      "provider": "Provider",
+      "model": "Model",
+      "modelStrong": "Model for decisions",
+      "providerFake": "Test model, nothing leaves this system",
+      "providerNone": "No AI provider is set up",
+      "privacyTitle": "What reaches the model",
+      "piiOff": "Personal data is off for your company. Columns flagged as personal data stay out of what the model sees, and out of its answers.",
+      "piiOn": "Personal data is on for your company. Columns flagged as personal data can reach the model and appear in its answers.",
+      "piiChange": "This can't be changed here. Ask your company owner or an admin.",
+      "sentIntro": "The model sees:",
+      "sent": {
+        "instructions": "Our instructions to the model",
+        "profile": "Your company profile",
+        "question": "Your question as typed, the conversation so far and its summary",
+        "columns": "Column names and what each column means",
+        "results": "Results of the analyst's queries, including up to 50 rows from columns not flagged as personal data",
+        "customerIds": "Customer IDs as they are, unless that column is flagged as personal data",
+        "samples": "Masked samples of unclear columns, to work out what they mean"
+      },
+      "notTotals": "This isn't limited to totals: individual rows can reach the model.",
+      "groq": "With Groq, this data leaves our systems for Groq in the United States. Groq keeps no data by default, but may log requests for up to 30 days for reliability or abuse checks unless Zero Data Retention is on.",
+      "otherCloud": "With {provider}, this data leaves our systems for that provider.",
+      "fakeLocal": "With the test model, none of this leaves our systems."
+    }
   },
   "charts": {
     "viewTable": "View as table",
@@ -518,7 +548,8 @@
         "channel": "Channel"
       }
     },
-    "previousPeriod": "previous period"
+    "previousPeriod": "previous period",
+    "rangeSummaryNoPrevious": "{start} – {end}. There is no previous period to compare with."
   },
   "insights": {
     "title": "Insights",
@@ -540,7 +571,6 @@
     "method": "How it was measured",
     "warnings": "Read with care",
     "ask": "Ask the analyst about this",
-    "chatContext": "You asked about this finding:",
     "empty": {
       "title": "No findings yet",
       "body": "The analysis finished without findings. Check the data health page for what was skipped."
@@ -804,5 +834,149 @@
       "category": "Category",
       "product": "Product"
     }
+  },
+  "chat": {
+    "title": "Ask the analyst",
+    "description": "Answers from your data, with the evidence behind every number.",
+    "askingAbout": "Asking about {name}",
+    "conversations": "Conversations",
+    "openConversations": "Open conversations",
+    "newConversation": "New conversation",
+    "noConversations": "Your conversations about this dataset will appear here.",
+    "loadFailed": "The conversation could not be loaded",
+    "actions": "Actions for {title}",
+    "rename": "Rename",
+    "renameTitle": "Rename this conversation",
+    "renameLabel": "Name",
+    "renameSave": "Save name",
+    "renameCancel": "Keep the name",
+    "delete": "Delete",
+    "deleteTitle": "Delete this conversation?",
+    "deleteBody": "“{title}” and its answers will be deleted. This can't be undone.",
+    "deleteConfirm": "Delete conversation",
+    "deleteCancel": "Keep conversation",
+    "actionFailed": "That didn't work.",
+    "composer": {
+      "label": "Your question",
+      "placeholder": "Ask about your data",
+      "send": "Send",
+      "stop": "Stop answer",
+      "hint": "Enter to send, Shift+Enter for a new line",
+      "tooLong": "Shorten your question by {over, plural, one {# character} other {# characters}}.",
+      "remaining": "{count, plural, one {# character remaining} other {# characters remaining}}"
+    },
+    "empty": {
+      "title": "What do you want to know?",
+      "body": "Answers come from your data, and each number links back to the query that produced it.",
+      "starters": "Example questions"
+    },
+    "starters": {
+      "revenue": "What is our total net revenue?",
+      "forecast": "Forecast revenue for the next months",
+      "anomalies": "Were there any unusual periods?",
+      "churn": "Which customers are at risk of churn?",
+      "whatIf": "What if I raise prices by 5%?",
+      "segments": "Show me the customer segments",
+      "topProducts": "What are our top products?",
+      "nextStep": "What should I do next to grow profit?",
+      "overview": "What does this dataset contain?",
+      "quality": "How clean is this data?",
+      "reliable": "What can you analyse with this data?"
+    },
+    "you": "You asked",
+    "analyst": "The analyst answered",
+    "thinking": "Working on your answer",
+    "running": "Working: {tool}",
+    "stopped": "Stopped. This is the part that arrived.",
+    "interrupted": "This answer was cut off. This is the part that arrived.",
+    "noAnswer": "No answer was saved for this question.",
+    "retry": "Try again",
+    "announce": {
+      "answering": "The analyst is answering.",
+      "ready": "Answer ready."
+    },
+    "status": {
+      "waiting": "The model is busy, retrying in {seconds} s",
+      "retrying": "The model is busy, retrying now"
+    },
+    "verifier": {
+      "traced": "{count, plural, one {# number traced to your data} other {# numbers traced to your data}}",
+      "unchecked": "Numbers not checked",
+      "warnTitle": "{count, plural, one {# number could not be traced to your data} other {# numbers could not be traced to your data}}",
+      "warnBody": "Check before you use it. No query in this answer returned:",
+      "testModel": "Test model"
+    },
+    "caveats": {
+      "answer_truncated": "This answer reached the length limit, so it may be incomplete.",
+      "instruction_like_data": "Some of your data looks like instructions. It was treated as data and not followed.",
+      "sampled_data": "This used a sample of the data, so its totals are not totals for the whole file."
+    },
+    "how": {
+      "title": "How I got this",
+      "steps": "{count, plural, one {# step} other {# steps}}",
+      "none": "This answer used no data tools.",
+      "done": "Done",
+      "failed": "Failed",
+      "running": "Running",
+      "unfinished": "Not finished",
+      "capped": "The result stopped at the {cap} row limit.",
+      "query": "Query result",
+      "code": "Python code",
+      "output": "Output",
+      "findings": "Findings used",
+      "copyCode": "Copy"
+    },
+    "tools": {
+      "get_dataset_overview": "Read the dataset overview",
+      "run_sql": "Ran a SQL query",
+      "run_python": "Ran a calculation",
+      "get_insights": "Read the analysis findings",
+      "get_forecast": "Read the forecast",
+      "get_anomalies": "Read the unusual periods",
+      "get_segments": "Read the customer segments",
+      "get_churn_risk": "Read the churn risk scores",
+      "explain_drivers": "Read the revenue drivers",
+      "what_if": "Ran a what-if scenario",
+      "make_chart": "Made a chart"
+    },
+    "chart": {
+      "moreSeries": "The chart shows {series}. The table also has {others}.",
+      "cut": "The chart data stopped at the row limit.",
+      "lineAria": "{title}, line chart",
+      "barAria": "{title}, bar chart"
+    },
+    "insight": {
+      "label": "About this finding",
+      "remove": "Remove this finding",
+      "prefill": "Tell me more about this finding: {title}. What should I do about it?",
+      "missing": "That finding is gone because the data was analysed again. Ask your question below.",
+      "older": "That finding comes from an earlier version of this data, so it was not added."
+    },
+    "errors": {
+      "budget": "Your company has used today's AI budget. It resets at midnight UTC.",
+      "seeUsage": "See usage",
+      "rateLimited": "The model is at its limit. Try again in {seconds, plural, one {# second} other {# seconds}}.",
+      "rateLimitedMinutes": "The model is at its limit. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+      "rateLimitedSoon": "The model is at its limit. Try again in a moment.",
+      "tooManyStreams": "You already have answers in progress. Try again when one finishes.",
+      "busy": "This conversation is still finishing the last answer. Try again in a moment.",
+      "noBalance": "The AI provider account has no balance. Ask your administrator to top it up.",
+      "providerAccess": "The AI provider refused access. Ask your administrator to check the API key.",
+      "modelMissing": "The AI model in the settings isn't available. Ask your administrator to change it.",
+      "notConfigured": "No AI provider is set up yet. Ask your administrator to set one up.",
+      "unavailable": "The AI provider isn't responding. Try again in a moment.",
+      "timeout": "The model took too long to answer. Try again, or ask something narrower.",
+      "badRequest": "The AI provider rejected this request. Try again, or rephrase your question.",
+      "badToolCall": "The model made an invalid data request. Try again, or rephrase your question.",
+      "tooLarge": "This question needs more data than the model can take. Ask about a shorter period or fewer items.",
+      "internal": "The answer failed on our side. Try again in a moment.",
+      "network": "The connection dropped before the answer finished. Check your connection and try again.",
+      "gone": "This conversation or its dataset no longer exists. Start a new conversation.",
+      "datasetNotReady": "This dataset is still being prepared. Try again when it's ready.",
+      "invalid": "This question can't be sent. Shorten it and try again.",
+      "generic": "The answer failed. Try again."
+    },
+    "table": "Table",
+    "thread": "This conversation"
   }
 }

@@ -10,14 +10,17 @@ import {
 
 import { api, unwrap } from "@/lib/api/client";
 import type {
+  AiUsage,
   AnalysisRun,
   AnalysisRunListItem,
   Anomalies,
+  BusinessProfile,
   Capabilities,
   Churn,
   ChurnSort,
   CleaningPlan,
   ColumnProfile,
+  Conversation,
   Dataset,
   DatasetDetail,
   DatasetVersion,
@@ -26,6 +29,7 @@ import type {
   Grain,
   Insight,
   InsightSummary,
+  Message,
   Preview,
   Profile,
   Quality,
@@ -53,6 +57,10 @@ export const keys = {
   runData: (runId: string, what: string, params: object = {}) =>
     ["run", runId, what, params] as const,
   insight: (id: string) => ["insight", id] as const,
+  conversations: (datasetId: string) => ["conversations", datasetId] as const,
+  messages: (id: string) => ["conversation", id, "messages"] as const,
+  usage: ["ai-usage"] as const,
+  profile: ["company-profile"] as const,
 };
 
 /** Results of a finished run do not change, so they stay fresh for the session. */
@@ -443,5 +451,86 @@ export function useWhatIf(id: string, version: number) {
           body: { scenarios },
         }),
       ) as unknown as Promise<WhatIfResult>,
+  });
+}
+
+/** The signed-in user's conversations about one dataset, most recent first. */
+export function useConversations(datasetId: string | undefined) {
+  return useQuery({
+    queryKey: keys.conversations(datasetId ?? ""),
+    enabled: Boolean(datasetId),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/conversations", {
+          params: { query: { mine: true, dataset_id: datasetId, limit: 100 } },
+        }),
+      ) as Promise<Conversation[]>,
+  });
+}
+
+export function fetchMessages(id: string): Promise<Message[]> {
+  return unwrap(
+    api.GET("/api/v1/conversations/{conversation_id}/messages", {
+      params: { path: { conversation_id: id }, query: { limit: 500 } },
+    }),
+  );
+}
+
+export function useMessages(id: string | null) {
+  return useQuery({
+    queryKey: keys.messages(id ?? ""),
+    enabled: Boolean(id),
+    queryFn: () => fetchMessages(id ?? ""),
+  });
+}
+
+export function useCreateConversation(datasetId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      unwrap(api.POST("/api/v1/conversations", { body: { dataset_id: datasetId } })) as Promise<Conversation>,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.conversations(datasetId) }),
+  });
+}
+
+export function useRenameConversation(datasetId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      unwrap(
+        api.PATCH("/api/v1/conversations/{conversation_id}", {
+          params: { path: { conversation_id: id } },
+          body: { title },
+        }),
+      ) as Promise<Conversation>,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.conversations(datasetId) }),
+  });
+}
+
+export function useDeleteConversation(datasetId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(
+        api.DELETE("/api/v1/conversations/{conversation_id}", {
+          params: { path: { conversation_id: id } },
+        }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.conversations(datasetId) }),
+  });
+}
+
+/** Today's AI usage; fresh on every visit, because any teammate can spend it. */
+export function useAiUsage() {
+  return useQuery({
+    queryKey: keys.usage,
+    queryFn: () => unwrap(api.GET("/api/v1/ai/usage")) as Promise<AiUsage>,
+  });
+}
+
+export function useCompanyProfile() {
+  return useQuery({
+    queryKey: keys.profile,
+    queryFn: () => unwrap(api.GET("/api/v1/company/profile")) as Promise<BusinessProfile>,
   });
 }

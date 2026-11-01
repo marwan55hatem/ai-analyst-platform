@@ -49,12 +49,14 @@ function withToken(request: Request, token: string | null): Request {
 /**
  * fetch that adds the bearer token and, on a 401, refreshes once and retries once.
  * A failed refresh clears the session and tells listeners (the app redirects to login).
+ * `signal` lets a caller cancel it (the chat stream's Stop button).
  */
-export async function authFetch(input: Request): Promise<Response> {
+export async function authFetch(input: Request, init?: { signal?: AbortSignal }): Promise<Response> {
   const isPublic = PUBLIC_AUTH_PATHS.some((p) => new URL(input.url).pathname === p);
   const retry = input.clone();
   const sentToken = getAccessToken();
-  const response = await fetch(withToken(input, sentToken));
+  const options = init?.signal ? { signal: init.signal } : undefined;
+  const response = await fetch(withToken(input, sentToken), options);
   if (response.status !== 401 || isPublic) return response;
 
   // Another request may already have renewed the token while this one was in flight.
@@ -65,7 +67,7 @@ export async function authFetch(input: Request): Promise<Response> {
     notifySessionExpired();
     return response;
   }
-  return fetch(withToken(retry, getAccessToken()));
+  return fetch(withToken(retry, getAccessToken()), options);
 }
 
 function baseUrl(): string {

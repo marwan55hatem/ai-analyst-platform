@@ -29,7 +29,7 @@ export function useActiveDataset() {
   const run = useLatestRun(dataset?.id ?? "", version, Boolean(dataset));
 
   const select = useCallback(
-    (id: string) => update({ dataset: id, start: null, end: null, range: null, insight: null }),
+    (id: string) => update({ dataset: id, start: null, end: null, range: null, insight: null, c: null }),
     [update],
   );
 

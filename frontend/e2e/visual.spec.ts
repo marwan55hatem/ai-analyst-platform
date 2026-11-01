@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { GROUND_TRUTH } from "./global-setup";
-import { analysedUser, growToFullPage, login } from "./helpers";
+import { analysedUser, askQuestion, growToFullPage, login } from "./helpers";
 
 /**
  * Visual snapshots of the dashboard and insights pages: en/ar x light/dark x 1440/375 px.
@@ -55,5 +55,51 @@ test("dashboard and insights pages match their snapshots", async ({ browser, bas
         await context.close();
       }
     }
+  }
+});
+
+/** Chat and settings baselines, kept small: the states that differ, not every combination. */
+test("chat and settings match their snapshots", async ({ browser, baseURL }, testInfo) => {
+  testInfo.setTimeout(10 * 60_000);
+  const user = await analysedUser(browser, GROUND_TRUTH);
+  const setup = await browser.newPage();
+  await login(setup, user);
+  await setup.goto("/chat");
+  await askQuestion(setup, "What is our total net revenue?");
+  const chat = `/chat${new URL(setup.url()).search}`;
+  await setup.close();
+
+  const views = [
+    { locale: "en", scheme: "light", width: 1440, urls: [chat, "/settings"] },
+    { locale: "ar", scheme: "light", width: 1440, urls: [chat, "/settings"] },
+    { locale: "en", scheme: "dark", width: 1440, urls: [chat, "/settings"] },
+    { locale: "en", scheme: "light", width: 375, urls: [chat] },
+  ] as const;
+  for (const view of views) {
+    const context = await browser.newContext({
+      viewport: { width: view.width, height: view.width === 375 ? 812 : 900 },
+      colorScheme: view.scheme,
+      reducedMotion: "reduce",
+    });
+    await context.addCookies([{ name: "NEXT_LOCALE", value: view.locale, url: baseURL! }]);
+    const page = await context.newPage();
+    await login(page, user, view.locale);
+    for (const url of view.urls) {
+      await page.waitForTimeout(2_100);
+      await page.goto(url);
+      await settle(page, url === chat ? "[data-testid=answer-text]" : "[data-testid=privacy]");
+      const name = url === chat ? "chat" : "settings";
+      await expect(page).toHaveScreenshot(`${name}-${view.locale}-${view.scheme}-${view.width}.png`, {
+        mask: [
+          page.locator("header"),
+          page.getByTestId("conversation-list"),
+          page.getByTestId("ai-usage"),
+          page.locator("[aria-labelledby=account-h] dd"),
+        ],
+        maxDiffPixelRatio: 0.01,
+        animations: "disabled",
+      });
+    }
+    await context.close();
   }
 });

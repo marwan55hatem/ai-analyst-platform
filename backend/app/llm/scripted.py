@@ -8,15 +8,37 @@ impact (range) / Risks / Next step. Anything else gets one clarifying question.
 
 import json
 import re
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
 from app.llm.fake import FakeTurn, stream_turn
-from app.llm.types import ChatMessage, LLMEvent, ToolSpec
+from app.llm.types import ChatMessage, LLMEvent, RateLimitWait, TextDelta, ToolSpec
 
 SCRIPTED_BANNER = "**[Scripted test model - not a real LLM]**"
 SUMMARY_MARKER = "SUMMARIZE_CONVERSATION"
 INVENTED_NUMBER = "9,876,543.21"
+# Markers that let end-to-end tests reach states a healthy scripted turn never shows.
+RATE_LIMIT_MARKER = "[rate-limit-demo]"
+SLOW_MARKER = "[slow-demo]"
+TABLE_MARKER = "[table-demo]"
+RATE_LIMIT_WAIT_S = 3
+SLOW_WORD_S = 0.15
+TABLE_DEMO = (
+    f"{SCRIPTED_BANNER}\n\n"
+    "| Region of the business | Product category name | Sales channel used | "
+    "Customer group label | Payment method chosen | Delivery option taken |\n"
+    "| --- | --- | --- | --- | --- | --- |\n"
+    "| North and the coastal towns | Office furniture and supplies | Online shop front | "
+    "Returning small businesses | Bank transfer on invoice | Standard ground delivery |\n"
+    "| South and the inland towns | Stationery and paper goods | Stores and resellers | "
+    "New household buyers | Card at the checkout | Collection from the store |\n\n"
+    "```sql\n"
+    "SELECT region_of_the_business, product_category_name, sales_channel_used, "
+    "customer_group_label, payment_method_chosen, delivery_option_taken FROM data "
+    "GROUP BY region_of_the_business, product_category_name, sales_channel_used\n"
+    "```"
+)
 Step = list[tuple[str, dict[str, Any]]]
 Results = dict[str, Any]
 
@@ -26,6 +48,7 @@ _PRICE = re.compile(
     re.IGNORECASE,
 )
 _CODE = re.compile(r"run python:\s*```(?:python)?\n(.*?)```", re.IGNORECASE | re.DOTALL)
+_ARABIC = re.compile(r"[\u0600-\u06FF]")
 
 
 def _money(value: Any) -> str:
@@ -61,6 +84,8 @@ def _sections(recommendation: str, why: list[str], impact: str, risks: str, next
 class ScriptedAnalyst:
     """Deterministic analyst for walkthroughs and tests; it never calls a network."""
 
+    sleep = staticmethod(time.sleep)
+
     def complete_json(self, system: str, user: str) -> dict[str, Any]:
         """Profiling role refinement: keep the rule-based roles."""
         return {"columns": {}}
@@ -75,6 +100,9 @@ class ScriptedAnalyst:
             )
             return
         question, done, results = _turn_state(messages)
+        if RATE_LIMIT_MARKER in question and done == 0:
+            yield RateLimitWait(RATE_LIMIT_WAIT_S)
+            self.sleep(RATE_LIMIT_WAIT_S)
         plan = self._plan(question)
         available = {t.name for t in tools}
         step = plan[done] if done < len(plan) and available else None
@@ -85,7 +113,10 @@ class ScriptedAnalyst:
                 yield from stream_turn(turn, messages, model, call_prefix=f"scripted_{done}")
                 return
         text = self._answer(question, results)
-        yield from stream_turn(FakeTurn(text=text), messages, model, call_prefix="answer")
+        for event in stream_turn(FakeTurn(text=text), messages, model, call_prefix="answer"):
+            if SLOW_MARKER in question and isinstance(event, TextDelta):
+                self.sleep(SLOW_WORD_S)
+            yield event
 
     # -- planning -------------------------------------------------------------------------------
 
@@ -98,6 +129,8 @@ class ScriptedAnalyst:
             return [[("get_insights", {"type": "kpi_summary", "limit": 1})]]
         if _PRICE.search(question) or "what if" in q or "ماذا لو" in question:
             return [[("what_if", {"scenarios": [self._price_scenario(question)]})]]
+        if "chart" in q or "رسم" in question:
+            return [[("get_dataset_overview", {})], lambda r: self._chart(r, "bar" in q)]
         if (
             any(k in q for k in ("what should", "grow profit", "recommend"))
             or "ماذا يجب" in question
@@ -168,17 +201,39 @@ class ScriptedAnalyst:
             roles.setdefault(column.get("role"), column.get("name"))
         return roles
 
+    @staticmethod
+    def _amount(roles: dict[str, str]) -> str:
+        if roles.get("revenue"):
+            return f'SUM("{roles["revenue"]}")'
+        if roles.get("price") and roles.get("quantity"):
+            return f'SUM("{roles["price"]}" * "{roles["quantity"]}")'
+        return "COUNT(*)"
+
+    def _chart(self, results: Results, ranked: bool) -> Step:
+        roles = self._columns(results)
+        amount = self._amount(roles)
+        item = roles.get("product") or roles.get("category")
+        if ranked and item:
+            sql = (
+                f'SELECT "{item}" AS item, ROUND({amount}, 2) AS amount FROM data '
+                "GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
+            )
+            return [("make_chart", {"sql": sql, "title": "Top items"})]
+        if not roles.get("date"):
+            return []
+        day = f'CAST("{roles["date"]}" AS DATE)'
+        sql = (
+            f"SELECT CAST(date_trunc('month', {day}) AS DATE) AS month, "
+            f"ROUND({amount}, 2) AS amount FROM data GROUP BY 1 ORDER BY 1"
+        )
+        return [("make_chart", {"sql": sql, "title": "Revenue by month"})]
+
     def _top_products_sql(self, results: Results) -> Step:
         roles = self._columns(results)
         product = roles.get("product") or roles.get("category")
         if not product:
             return []
-        if roles.get("revenue"):
-            amount = f'SUM("{roles["revenue"]}")'
-        elif roles.get("price") and roles.get("quantity"):
-            amount = f'SUM("{roles["price"]}" * "{roles["quantity"]}")'
-        else:
-            amount = "COUNT(*)"
+        amount = self._amount(roles)
         sql = (
             f'SELECT "{product}" AS item, ROUND({amount}, 2) AS amount FROM data '
             "GROUP BY 1 ORDER BY 2 DESC LIMIT 5"
@@ -196,6 +251,8 @@ class ScriptedAnalyst:
 
     def _answer(self, question: str, results: Results) -> str:
         q = question.lower()
+        if TABLE_MARKER in q:
+            return TABLE_DEMO
         if not results:
             return (
                 f"{SCRIPTED_BANNER}\n\nI can answer questions about net revenue, forecasts, "
@@ -215,6 +272,8 @@ class ScriptedAnalyst:
             )
         if "[verifier-demo]" in q:
             return self._verifier_demo(results)
+        if _ARABIC.search(question) and set(results) == {"get_insights"}:
+            return self._arabic_revenue_answer(results)
         for name, writer in (
             (
                 "what_if",
@@ -225,6 +284,7 @@ class ScriptedAnalyst:
             ("get_segments", self._findings_answer),
             ("get_churn_risk", self._churn_answer),
             ("run_sql", self._sql_answer),
+            ("make_chart", self._chart_answer),
             ("get_insights", self._revenue_answer),
         ):
             if name in results:
@@ -257,6 +317,43 @@ class ScriptedAnalyst:
             "This is a measured total, not an estimate, so there is no range.",
             "Totals depend on the data's date range and on returns being recorded.",
             "Ask for the trend or the forecast to see where it is heading.",
+        )
+
+    def _arabic_revenue_answer(self, results: Results) -> str:
+        insights = results["get_insights"].get("insights", [])
+        if not insights:
+            return f"{SCRIPTED_BANNER}\n\nلا تكفي البيانات للإجابة: لا توجد نتائج مؤشرات محفوظة."
+        data = insights[0].get("data", {})
+        net = _money(data.get("net_revenue"))
+        return (
+            f"{SCRIPTED_BANNER}\n\n"
+            f"**التوصية** - استخدم صافي الإيراد البالغ {net} أساسًا للتخطيط.\n\n"
+            "**السبب (الأدلة)**\n"
+            f"- إجمالي المبيعات {_money(data.get('gross_revenue'))}، "
+            f"والمرتجعات {_money(data.get('returns_total'))}.\n"
+            f"- عدد الطلبات {_count(data.get('orders'))}، "
+            f"ومتوسط قيمة الطلب {_money(data.get('average_order_value'))}.\n\n"
+            "**الأثر المتوقع (النطاق)** - هذا إجمالي مقاس وليس تقديرًا، فلا يوجد نطاق.\n\n"
+            "**المخاطر** - تعتمد الأرقام على فترة البيانات وعلى تسجيل المرتجعات.\n\n"
+            "**الخطوة التالية** - اطلب الاتجاه أو التوقع لمعرفة المسار."
+        )
+
+    def _chart_answer(self, results: Results) -> str:
+        content = results["make_chart"]
+        if content.get("error"):
+            return _sections(
+                "The data cannot answer this.",
+                [str(content.get("message"))],
+                "Not available.",
+                "None.",
+                "Ask for a different view.",
+            )
+        return _sections(
+            f'Use the chart "{content.get("title")}" below as the starting point.',
+            [f"{_count(content.get('points'))} points, as a {content.get('chart_type')} chart."],
+            "Observed totals, not an estimate.",
+            "Totals include every period in the data.",
+            "Ask about the highest or lowest point.",
         )
 
     def _forecast_answer(self, results: Results) -> str:
