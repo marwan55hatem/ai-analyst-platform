@@ -99,7 +99,7 @@ models (there is no cheaper tier to route between), prices and the size limits b
 | Case | Code | What happens |
 | --- | --- | --- |
 | 401 | `provider_auth_failed` | message names `GROQ_API_KEY` |
-| 429 with `Retry-After` up to 65 s | – | `status` event, keepalives, then a retry |
+| 429 with `Retry-After` up to 65 s | – | `status` event, then a retry; the heartbeat covers the wait |
 | 429 with a longer wait (daily limit) | `provider_rate_limited` | no wait; "Try again in N seconds" or "about M minutes", plus `retry_after_s` |
 | 413, `context_length_exceeded` | `provider_request_too_large` | loop trims all tool results to 1,000 characters and retries once |
 | 404, `model_not_found`, `model_decommissioned` | `provider_model_not_found` | message names `LLM_MODEL` |
@@ -253,8 +253,14 @@ Typical order: `token`* → (`tool_call` → `tool_result` → `chart`? → `cav
 stored. Errors before the stream starts (auth, rate limit, too many streams, unknown conversation)
 are normal JSON error responses.
 
+Heartbeat: the agent runs in its own thread (`with_heartbeat` in `app/agent/streams.py`) and hands
+frames over a queue, so the response side stays free while a tool, a forecast job or the model is
+silent. After 15 s without a frame it sends the SSE comment `: keep-alive`, whatever the cause. If
+the client leaves, the agent stops at its next frame, and the stream slot is released in that thread
+only once a running tool has finished.
+
 Rate-limit waits, for the Step 13 chat UI: when the provider asks to wait up to 65 s, one `status`
-frame opens the wait and an SSE comment follows every 15 s, so proxies keep the connection open:
+frame opens the wait, and the heartbeat covers the rest:
 
 ```
 event: status
@@ -274,7 +280,9 @@ the next `token`, `tool_call`, `final` or `error` ends the wait. Comments are no
 
 Through the Next.js proxy: `Cache-Control: no-transform` on the stream stops the proxy's compression,
 which otherwise holds every frame back until the end. The proxy drops a connection that stays silent
-for 30 s (see `docs/known-limits.md`).
+for 30 s, which is why the heartbeat is 15 s. Tested through port 3000 with a local stub of the
+provider: a 60 s silent tool run, a 60 s silent model and a 40 s rate-limit wait all finish, with no
+gap over about 15 s.
 
 REST: `POST/GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`,
 `GET /conversations/{id}/messages`, `GET/PUT /company/profile`.

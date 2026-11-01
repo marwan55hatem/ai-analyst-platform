@@ -1,11 +1,16 @@
-"""At most N open chat streams per user (Redis when rate limiting is on, in-process otherwise).
+"""Chat stream plumbing: per-user slots and the heartbeat that keeps an idle stream open.
 
-Slots expire after STREAM_TTL_S so a stream whose cleanup never ran cannot block a user forever.
+At most N open chat streams per user (Redis when rate limiting is on, in-process otherwise). Slots
+expire after STREAM_TTL_S so a stream whose cleanup never ran cannot block a user forever.
 """
 
+import contextvars
+import queue
 import threading
 import time
 import uuid
+from collections.abc import Iterator
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
 
@@ -17,6 +22,60 @@ from app.core.errors import RateLimitedError
 
 logger = structlog.get_logger()
 STREAM_TTL_S = 600
+HEARTBEAT_S = 15.0  # well inside the Next.js proxy's 30 s idle timeout
+HEARTBEAT_FRAME = ": keep-alive\n\n"  # an SSE comment: it holds proxies open, clients skip it
+
+
+@dataclass(frozen=True)
+class _Failed:
+    """The stream raised; the error is passed on to the response side."""
+
+    error: Exception
+
+
+def with_heartbeat(frames: Iterator[str], interval: float | None = None) -> Iterator[str]:
+    """Yield `frames`, adding a heartbeat whenever none arrives for `interval` seconds.
+
+    The agent runs synchronously, so a slow tool or model call blocks the stream between frames.
+    It therefore runs in its own thread and hands frames over a queue, which leaves the response
+    side free to send heartbeats whatever the cause of the silence. Closing this generator (the
+    client went away) stops the source at its next frame; the source is then closed in the thread
+    it ran in, so its database session and cleanup stay on one thread.
+    """
+    wait = interval if interval is not None else HEARTBEAT_S
+    out: queue.Queue[str | _Failed | None] = queue.Queue()
+    stop = threading.Event()
+
+    def pump() -> None:
+        try:
+            for frame in frames:
+                out.put(frame)
+                if stop.is_set():
+                    break
+        except Exception as exc:  # noqa: BLE001 - raised again on the response side
+            out.put(_Failed(exc))
+        finally:
+            try:
+                getattr(frames, "close", lambda: None)()
+            finally:
+                out.put(None)
+
+    context = contextvars.copy_context()  # keeps the request's log fields
+    threading.Thread(target=context.run, args=(pump,), name="chat-stream", daemon=True).start()
+    try:
+        while True:
+            try:
+                item = out.get(timeout=wait)
+            except queue.Empty:
+                yield HEARTBEAT_FRAME
+                continue
+            if item is None:
+                return
+            if isinstance(item, _Failed):
+                raise item.error
+            yield item
+    finally:
+        stop.set()
 
 
 def too_many_streams(limit: int) -> RateLimitedError:

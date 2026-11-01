@@ -1,9 +1,13 @@
 """Agent behaviour a real provider needs: prompt limits, repairs, waits and the data on the wire."""
 
+import contextvars
 import json
+import threading
+import time
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -13,10 +17,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.agent import service as chat_service
+from app.agent import streams
 from app.agent.context import TRIM_NOTE, prompt_estimate, shrink_tool_results
 from app.agent.loop import OUT_OF_TOKENS_ANSWER, REPAIR_NOTE
 from app.agent.prompt import PROMPT_VERSION, load_prompt
+from app.agent.streams import HEARTBEAT_FRAME, with_heartbeat
 from app.agent.tools import TOOLS_BY_NAME
+from app.agent.tools import findings as findings_tools
 from app.agent.tools.base import content_size, fit_rows
 from app.agent.tools.findings import (
     _forecast_result,
@@ -390,7 +397,7 @@ def real_groq(handler: Any, sleeps: list[float]) -> OpenAICompatibleClient:
     )
 
 
-def test_429_wait_streams_status_then_keepalives_then_answers(
+def test_429_wait_streams_status_then_answers(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, sandbox: FakeSandbox
 ) -> None:
     answers = iter([httpx.Response(429, headers={"retry-after": "40"}, json={"error": {}})])
@@ -411,10 +418,130 @@ def test_429_wait_streams_status_then_keepalives_then_answers(
     body = response.text
     frames = [f for f in body.split("\n\n") if f]
     assert frames[0] == 'event: status\ndata: {"code": "rate_limited", "retry_in_s": 40}'
-    assert frames[1:3] == [": keep-alive", ": keep-alive"]
-    assert frames[3].startswith("event: token")
-    assert sleeps == [15.0, 15.0, 10.0]
+    assert frames[1].startswith("event: token")
+    assert sleeps == [40.0]
     assert kinds(parse_sse(body)) == ["status", "token*", "final"]
+
+
+def slow_source(gap: float) -> Iterator[str]:
+    yield "first\n\n"
+    time.sleep(gap)
+    yield "second\n\n"
+
+
+def test_heartbeat_fills_an_idle_gap_between_frames() -> None:
+    shown = list(with_heartbeat(slow_source(0.3), 0.05))
+    assert shown[0] == "first\n\n" and shown[-1] == "second\n\n"
+    assert shown.count(HEARTBEAT_FRAME) >= 3 and len(set(shown)) == 3
+
+
+def test_heartbeat_also_covers_silence_before_the_first_frame() -> None:
+    def source() -> Iterator[str]:
+        time.sleep(0.2)
+        yield "late\n\n"
+
+    shown = list(with_heartbeat(source(), 0.05))
+    assert shown[0] == HEARTBEAT_FRAME and shown[-1] == "late\n\n"
+
+
+def test_no_heartbeat_while_frames_keep_arriving() -> None:
+    assert list(with_heartbeat(iter(["a", "b", "c"]), 5.0)) == ["a", "b", "c"]
+
+
+def test_heartbeat_passes_errors_on() -> None:
+    def source() -> Iterator[str]:
+        yield "first\n\n"
+        raise ValueError("broken")
+
+    stream = with_heartbeat(source(), 5.0)
+    assert next(stream) == "first\n\n"
+    with pytest.raises(ValueError, match="broken"):
+        next(stream)
+
+
+def test_heartbeat_keeps_the_context_of_the_request() -> None:
+    marker: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="unset")
+    marker.set("request-1")
+
+    def source() -> Iterator[str]:
+        yield marker.get()
+
+    assert list(with_heartbeat(source(), 5.0)) == ["request-1"]
+
+
+def test_closing_the_stream_stops_the_source_and_runs_its_cleanup_on_its_thread() -> None:
+    cleaned: list[int] = []
+    finished = threading.Event()
+
+    def source() -> Iterator[str]:
+        started = threading.get_ident()
+        try:
+            while True:
+                yield "frame\n\n"
+                time.sleep(0.01)
+        finally:
+            cleaned.append(threading.get_ident() == started)
+            finished.set()
+
+    stream = with_heartbeat(source(), 5.0)
+    assert next(stream) == "frame\n\n"
+    stream.close()  # type: ignore[attr-defined]
+    assert finished.wait(5.0) and cleaned == [True]
+
+
+class SlowSandbox(FakeSandbox):
+    """A tool that runs longer than the heartbeat interval, without a single frame."""
+
+    def run(self, code: str, data: Any) -> dict[str, Any]:
+        time.sleep(0.4)
+        return super().run(code, data)
+
+
+def test_silent_tool_run_gets_heartbeats_and_the_slot_is_released(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(streams, "HEARTBEAT_S", 0.05)
+    monkeypatch.setattr(chat_service, "_sandbox", lambda url, timeout: SlowSandbox())
+    use_model(
+        monkeypatch,
+        FakeLLMClient(
+            turns=lambda messages: (
+                FakeTurn(text="Done.")
+                if messages[-1].role == "tool"
+                else FakeTurn(tool_calls=[("run_python", {"code": "result = 1"})])
+            )
+        ),
+    )
+    owner = register(client)
+    _, conversation_id = sample_chat(client, owner)
+    response = client.post(
+        f"{API}/chat/stream",
+        headers=owner.headers,
+        json={"conversation_id": conversation_id, "message": "Anything?"},
+    )
+    frames = [f for f in response.text.split("\n\n") if f]
+    assert frames.count(": keep-alive") >= 3
+    assert kinds(parse_sse(response.text)) == ["tool_call", "tool_result", "token*", "final"]
+    for _ in range(get_settings().chat_max_concurrent_streams + 1):  # no slot was left open
+        assert ask(client, owner, conversation_id, "Again?")[-1].type == "final"
+
+
+def test_churn_result_says_what_each_customer_count_means(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = {
+        "module_status": "completed",
+        "model": {"models": {"lightgbm": {"customers": 12_059}}},
+        "customers": {"total": 12_084, "items": []},
+        "insights": [],
+    }
+    monkeypatch.setattr(findings_tools, "_latest_run", lambda ctx: SimpleNamespace(id="run-1"))
+    monkeypatch.setattr(findings_tools.findings, "churn_payload", lambda *a, **k: dict(payload))
+    settings = get_settings()
+    ctx = SimpleNamespace(db=None, tenant_id="t", settings=settings)
+    result = findings_tools.get_churn_risk(ctx, findings_tools.ChurnArgs())  # type: ignore[arg-type]
+    assert "held-out" in result.content["counts_note"]
+    assert "customers.total" in result.content["counts_note"]
 
 
 @dataclass

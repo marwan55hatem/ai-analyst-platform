@@ -221,12 +221,8 @@ def test_429_waits_then_succeeds_up_to_65_s() -> None:
 
     made, sleeps = groq(handler)
     events = run(made)
-    assert sleeps == [15.0, 15.0, 10.0]
-    assert [e for e in events if isinstance(e, RateLimitWait)] == [
-        RateLimitWait(40, first=True),
-        RateLimitWait(25, first=False),
-        RateLimitWait(10, first=False),
-    ]
+    assert sleeps == [40.0]
+    assert [e for e in events if isinstance(e, RateLimitWait)] == [RateLimitWait(40)]
     assert events[-1].text == "ok"
 
 

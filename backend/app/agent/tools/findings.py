@@ -31,6 +31,10 @@ PAYLOAD_CHARS = 1_500
 BRIEF_KEYS = ("module", "type", "title", "summary", "confidence", "sample_size")
 TITLE_KEYS = ("type", "title", "confidence", "sample_size")
 SHORTENED_NOTE = "Shortened to show every insight; call again with `type` for one type's detail."
+CHURN_COUNTS_NOTE = (
+    "customers.total is everyone scored, so report that as the sample size. The counts under "
+    "model.models are only the held-out customers used to check the model."
+)
 ITEM_SCHEMAS: dict[str, Any] = {"customers": ChurnScoreOut, "assignments": SegmentAssignmentOut}
 DROPPED_KEYS = {"evidence", "mlflow", "resources", "seed", "scores", "skipped_models"}
 
@@ -350,7 +354,7 @@ def get_segments(ctx: AgentContext, args: SegmentArgs) -> ToolResult:
 
 def get_churn_risk(ctx: AgentContext, args: ChurnArgs) -> ToolResult:
     """Churn model quality, risk bands and the riskiest customers."""
-    return _stored_findings(
+    result = _stored_findings(
         ctx,
         findings.churn_payload,
         (
@@ -369,6 +373,9 @@ def get_churn_risk(ctx: AgentContext, args: ChurnArgs) -> ToolResult:
         limit=args.top_n,
         offset=0,
     )
+    if result.ok and result.content.get("model"):
+        result.content["counts_note"] = CHURN_COUNTS_NOTE
+    return result
 
 
 def explain_drivers(ctx: AgentContext, _: NoArgs) -> ToolResult:

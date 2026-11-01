@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 EventType = Literal[
-    "token", "tool_call", "tool_result", "chart", "caveat", "status", "keepalive", "final", "error"
+    "token", "tool_call", "tool_result", "chart", "caveat", "status", "final", "error"
 ]
 
 
@@ -18,12 +18,7 @@ class AgentEvent:
     data: dict[str, Any]
 
     def sse(self) -> str:
-        """Return the event as an SSE frame (`event:` line, one `data:` line, blank line).
-
-        A keepalive is an SSE comment: it holds proxies open and clients ignore it.
-        """
-        if self.type == "keepalive":
-            return ": keep-alive\n\n"
+        """Return the event as an SSE frame (`event:` line, one `data:` line, blank line)."""
         payload = json.dumps(jsonable(self.data), ensure_ascii=False, allow_nan=False)
         return f"event: {self.type}\ndata: {payload}\n\n"
 
@@ -41,11 +36,6 @@ def error(code: str, message: str, **extra: Any) -> AgentEvent:
 def rate_limited(retry_in_s: int) -> AgentEvent:
     """Build the status event sent once when a provider rate limit makes the answer wait."""
     return AgentEvent("status", {"code": "rate_limited", "retry_in_s": retry_in_s})
-
-
-def keepalive() -> AgentEvent:
-    """Build a comment frame sent during a wait; it carries nothing."""
-    return AgentEvent("keepalive", {})
 
 
 def caveat(kind: str, message: str, **extra: Any) -> AgentEvent:

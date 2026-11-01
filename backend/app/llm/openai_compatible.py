@@ -52,7 +52,6 @@ logger = structlog.get_logger()
 
 MAX_BACKOFF_S = 30.0
 MAX_RATE_LIMIT_WAIT_S = 65
-KEEPALIVE_S = 15.0
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 Dialect = Literal["deepseek", "groq"]
 
@@ -131,9 +130,8 @@ class OpenAICompatibleClient:
                     continue
                 raise error from exc
             if isinstance(error, LLMRateLimitError):
-                yield from self._wait(delay)
-            else:
-                self._sleep(delay)
+                yield RateLimitWait(math.ceil(delay))
+            self._sleep(delay)
         raise LLMUnavailableError()  # pragma: no cover - the loop always returns or raises
 
     def complete_json(self, system: str, user: str) -> dict[str, Any]:
@@ -221,17 +219,6 @@ class OpenAICompatibleClient:
         self, attempt: int, response: httpx.Response | None, error: LLMError | None = None
     ) -> None:
         self._sleep(self._delay(attempt, response, error))
-
-    def _wait(self, delay: float) -> Iterator[RateLimitWait]:
-        """Sleep through a rate-limit wait in slices, so the stream can show that it is alive."""
-        remaining = delay
-        yield RateLimitWait(math.ceil(remaining), first=True)
-        while remaining > 0:
-            step = min(KEEPALIVE_S, remaining)
-            self._sleep(step)
-            remaining -= step
-            if remaining > 0:
-                yield RateLimitWait(math.ceil(remaining), first=False)
 
 
 def _retry_after(response: httpx.Response | None) -> int | None:

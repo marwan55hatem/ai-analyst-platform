@@ -104,10 +104,9 @@ class Completion:
 
 @dataclass(frozen=True)
 class RateLimitWait:
-    """The provider asked us to wait before retrying; `first` marks the start of the wait."""
+    """The provider asked us to wait this long before retrying."""
 
     retry_in_s: int
-    first: bool = True
 
 
 LLMEvent = TextDelta | Completion | RateLimitWait

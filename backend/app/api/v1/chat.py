@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.agent.service import ChatSession, message_cost, require_manage
-from app.agent.streams import get_stream_slots
+from app.agent.streams import get_stream_slots, with_heartbeat
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession, Limiter, require_role
 from app.core.config import get_settings
@@ -208,4 +208,10 @@ def chat_stream(
         finally:
             slots.release(user.id, token)
 
-    return StreamingResponse(frames(), media_type="text/event-stream", headers=SSE_HEADERS)  # type: ignore[arg-type]
+    # The slot is released inside the stream's thread: a client that left still holds it until a
+    # running tool has finished.
+    return StreamingResponse(
+        with_heartbeat(frames()),  # type: ignore[arg-type]
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )

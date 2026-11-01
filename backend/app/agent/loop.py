@@ -205,9 +205,7 @@ class AgentLoop:
                         shown = True
                         yield events.token(event.text)
                 elif isinstance(event, RateLimitWait):
-                    yield (
-                        events.rate_limited(event.retry_in_s) if event.first else events.keepalive()
-                    )
+                    yield events.rate_limited(event.retry_in_s)
                 else:
                     completion = event
         except LLMToolCallError as exc:
