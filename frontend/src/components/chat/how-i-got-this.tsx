@@ -98,7 +98,9 @@ function ToolTrace({ step, onOpenInsight }: { step: ToolStep; onOpenInsight: (id
           <Icon className="size-3.5" aria-hidden="true" />
           {step.ok === null ? t("unfinished") : step.ok ? t("done") : t("failed")}
         </span>
-        {step.ok && step.summary ? (
+        {step.ok && Array.isArray(evidence.insights) ? (
+          <span className="text-xs text-muted-foreground">{t("findingsCount", { count: insights.length })}</span>
+        ) : step.ok && step.summary ? (
           <EngineText className="text-xs text-muted-foreground">{step.summary}</EngineText>
         ) : null}
       </p>

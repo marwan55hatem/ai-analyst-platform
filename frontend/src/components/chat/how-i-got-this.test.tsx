@@ -88,6 +88,41 @@ describe("HowIGotThis", () => {
     expect(onOpen).toHaveBeenCalledWith("i1");
   });
 
+  it("counts findings with a real plural instead of the engine's summary", async () => {
+    const findings = (n: number) =>
+      step({
+        name: "get_insights",
+        summary: `${n} insights`,
+        evidence: { insights: Array.from({ length: n }, (_, i) => ({ insight_id: `i${i}`, title: `Finding ${i}` })) },
+      });
+    await open([findings(1)]);
+    expect(screen.getByText("1 finding")).toBeInTheDocument();
+    expect(screen.queryByText("1 insights")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [1, "نتيجة واحدة"],
+    [2, "نتيجتان"],
+    [3, "3 نتائج"],
+    [11, "11 نتيجة"],
+  ])("counts %i findings in Arabic", async (n, words) => {
+    renderWithProviders(
+      <HowIGotThis
+        tools={[
+          step({
+            name: "get_insights",
+            summary: `${n} insights`,
+            evidence: { insights: Array.from({ length: n }, (_, i) => ({ insight_id: `i${i}`, title: `F${i}` })) },
+          }),
+        ]}
+        onOpenInsight={vi.fn()}
+      />,
+      { locale: "ar" },
+    );
+    await userEvent.click(screen.getByRole("button", { name: /كيف وصلت إلى هذا/ }));
+    expect(screen.getByText(words)).toBeInTheDocument();
+  });
+
   it("shows Python code and its output as LTR text", async () => {
     await open([step({ name: "run_python", evidence: { code: "print(1)", stdout: "1\n" } })]);
     expect(screen.getByText("print(1)").closest("pre")).toHaveAttribute("dir", "ltr");

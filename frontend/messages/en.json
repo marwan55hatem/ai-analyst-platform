@@ -855,7 +855,6 @@
     "deleteBody": "“{title}” and its answers will be deleted. This can't be undone.",
     "deleteConfirm": "Delete conversation",
     "deleteCancel": "Keep conversation",
-    "actionFailed": "That didn't work.",
     "composer": {
       "label": "Your question",
       "placeholder": "Ask about your data",
@@ -917,14 +916,13 @@
       "none": "This answer used no data tools.",
       "done": "Done",
       "failed": "Failed",
-      "running": "Running",
       "unfinished": "Not finished",
       "capped": "The result stopped at the {cap} row limit.",
       "query": "Query result",
       "code": "Python code",
       "output": "Output",
       "findings": "Findings used",
-      "copyCode": "Copy"
+      "findingsCount": "{count, plural, one {# finding} other {# findings}}"
     },
     "tools": {
       "get_dataset_overview": "Read the dataset overview",
