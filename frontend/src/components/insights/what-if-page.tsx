@@ -282,7 +282,7 @@ function Results({ results, note }: { results: ScenarioResult[]; note: string })
                   <summary className="cursor-pointer text-primary">{t("evidence")}</summary>
                   <div className="space-y-4 pt-3">
                     {r.evidence.map((q, k) => (
-                      <EvidenceBlock key={k} query={q} index={i * 10 + k} />
+                      <EvidenceBlock key={k} query={q} />
                     ))}
                   </div>
                 </details>

@@ -1,20 +1,24 @@
 """Company profile, conversations and the streaming chat endpoint (Server-Sent Events)."""
 
 import uuid
+from datetime import UTC, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 
+from app.agent.budget import TokenBudget, today
 from app.agent.service import ChatSession, message_cost, require_manage
-from app.agent.streams import get_stream_slots, with_heartbeat
+from app.agent.streams import acquire_turn, get_stream_slots, with_heartbeat
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession, Limiter, require_role
 from app.core.config import get_settings
 from app.db.repository import BusinessProfileRepository, ConversationRepository, MessageRepository
+from app.db.session import get_sessionmaker
 from app.models.agent import BusinessProfile
 from app.models.user import Role
 from app.schemas.agent import (
+    AiUsageOut,
     BusinessProfileIn,
     BusinessProfileOut,
     ChatRequest,
@@ -27,6 +31,7 @@ from app.schemas.agent import (
 router = APIRouter(tags=["chat"], responses={**responses.UNAUTHORIZED})
 # no-transform stops the Next.js proxy's compression, which otherwise holds the whole stream back.
 SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
+NO_REAL_MODEL = ("none", "fake")
 
 
 # -- company profile ------------------------------------------------------------------------------
@@ -61,6 +66,26 @@ def put_profile(body: BusinessProfileIn, user: CurrentUser, db: DbSession) -> Bu
     return BusinessProfileOut.model_validate(profile)
 
 
+# -- AI usage -------------------------------------------------------------------------------------
+
+
+@router.get("/ai/usage", response_model=AiUsageOut, summary="Today's AI usage and model names")
+def ai_usage(user: CurrentUser) -> AiUsageOut:
+    """Tokens used against the company's daily budget, and the provider and model in use."""
+    settings = get_settings()
+    budget = settings.agent_daily_token_budget
+    provider = settings.llm_provider.lower()
+    named = provider not in NO_REAL_MODEL
+    return AiUsageOut(
+        tokens_used=TokenBudget(get_sessionmaker(), user.tenant_id, budget).used(),
+        daily_budget=budget,
+        resets_at=datetime.combine(today() + timedelta(days=1), time.min, UTC),
+        provider=provider,
+        model=settings.llm_model if named else None,
+        model_strong=settings.llm_model_strong if named else None,
+    )
+
+
 # -- conversations --------------------------------------------------------------------------------
 
 
@@ -89,12 +114,13 @@ def list_conversations(
     user: CurrentUser,
     db: DbSession,
     mine: bool = False,
+    dataset_id: uuid.UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ConversationOut]:
-    """Most recently updated first; `mine=true` lists only the caller's conversations."""
+    """Most recently updated first; `mine=true` and `dataset_id` narrow the list."""
     rows = ConversationRepository(db, user.tenant_id).list_recent(
-        user_id=user.id if mine else None, limit=limit, offset=offset
+        user_id=user.id if mine else None, dataset_id=dataset_id, limit=limit, offset=offset
     )
     return [ConversationOut.model_validate(r) for r in rows]
 
@@ -198,15 +224,18 @@ def chat_stream(
     settings = get_settings()
     ConversationRepository(db, user.tenant_id).get_or_404(body.conversation_id)
     limiter.hit(f"chat:{user.id}", settings.chat_rate_limit_per_minute, 60)
-    slots = get_stream_slots()
-    token = slots.acquire(user.id, settings.chat_max_concurrent_streams)
-    session = ChatSession(user, body.conversation_id, body.message, settings=settings)
+    release = acquire_turn(
+        get_stream_slots(), user.id, body.conversation_id, settings.chat_max_concurrent_streams
+    )
+    session = ChatSession(
+        user, body.conversation_id, body.message, retry=body.retry, settings=settings
+    )
 
     def frames() -> object:
         try:
             yield from session.frames()
         finally:
-            slots.release(user.id, token)
+            release()
 
     # The slot is released inside the stream's thread: a client that left still holds it until a
     # running tool has finished.

@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { withDataset } from "@/lib/active-dataset";
 import type { AnalysisRun, AnomalyEvent, ForecastSpec, Grain, KpiKey, SeriesPoint } from "@/lib/api/types";
-import { sparkValues } from "@/lib/charts/kpi";
+import { hasComparison, sparkValues } from "@/lib/charts/kpi";
 import { byDimension, DIMENSIONS, itemsOf, paretoBars, type Dimension } from "@/lib/charts/pareto";
 import {
   autoGrain,
@@ -205,12 +205,17 @@ export function DashboardView({ run, datasetId, version }: { run: AnalysisRun; d
           </h2>
           {series.data ? (
             <p className="text-sm text-muted-foreground" data-testid="range-summary">
-              {t("rangeSummary", {
-                start: fmt.day(series.data.range.start),
-                end: fmt.day(series.data.range.end),
-                prevStart: fmt.day(series.data.previous_range.start),
-                prevEnd: fmt.day(series.data.previous_range.end),
-              })}
+              {hasComparison(series.data.kpis)
+                ? t("rangeSummary", {
+                    start: fmt.day(series.data.range.start),
+                    end: fmt.day(series.data.range.end),
+                    prevStart: fmt.day(series.data.previous_range.start),
+                    prevEnd: fmt.day(series.data.previous_range.end),
+                  })
+                : t("rangeSummaryNoPrevious", {
+                    start: fmt.day(series.data.range.start),
+                    end: fmt.day(series.data.range.end),
+                  })}
             </p>
           ) : null}
         </div>

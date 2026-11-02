@@ -1,12 +1,13 @@
 // Optimise raw Playwright screenshots into docs/screenshots (palette PNGs, small).
 // Usage: SCREENSHOTS=1 npx playwright test screenshots.spec.ts && npm run screenshots
+// SCREENSHOT_DIR is where the raw captures are, SCREENSHOT_OUT where they go (replaced if set).
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 
 const RAW = process.env.SCREENSHOT_DIR ?? path.join(os.tmpdir(), "analyst-screenshots-raw");
-const OUT = path.resolve(import.meta.dirname, "..", "..", "docs", "screenshots");
+const OUT = process.env.SCREENSHOT_OUT ?? path.resolve(import.meta.dirname, "..", "..", "docs", "screenshots");
 const BUDGET = 5 * 1024 * 1024;
 
 mkdirSync(OUT, { recursive: true });

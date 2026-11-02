@@ -9,7 +9,7 @@ import queue
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
@@ -86,6 +86,32 @@ def too_many_streams(limit: int) -> RateLimitedError:
         details={"max_concurrent_streams": limit},
         headers={"Retry-After": "5"},
     )
+
+
+def acquire_turn(
+    slots: "StreamSlots", user_id: uuid.UUID, conversation_id: uuid.UUID, limit: int
+) -> Callable[[], None]:
+    """Take a user slot and the conversation's only slot; return the function that frees both.
+
+    One turn at a time per conversation: rows are numbered when a turn starts, so a second turn
+    running alongside it (Stop, then a quick new question) would interleave with it.
+    """
+    user_token = slots.acquire(user_id, limit)
+    try:
+        turn_token = slots.acquire(conversation_id, 1)
+    except RateLimitedError as exc:
+        slots.release(user_id, user_token)
+        raise RateLimitedError(
+            "This conversation is still finishing an answer; try again in a moment.",
+            code="conversation_busy",
+            headers={"Retry-After": "2"},
+        ) from exc
+
+    def release() -> None:
+        slots.release(conversation_id, turn_token)
+        slots.release(user_id, user_token)
+
+    return release
 
 
 class StreamSlots(Protocol):

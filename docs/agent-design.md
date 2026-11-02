@@ -245,13 +245,34 @@ is `event: <type>` plus one JSON `data:` line.
 | chart | `{id, spec}` |
 | caveat | `{kind, message, numbers?}` (kinds include `untraced_numbers`, `answer_truncated`) |
 | status | `{code: "rate_limited", retry_in_s}` |
-| final | `{message_id, text, model, usage, cost_usd_approx, untraced_numbers, scripted}` |
-| error | `{code, message, retry_after_s?}` (budget_exceeded, provider_no_balance, …) |
+| final | `{message_id, text, model, usage, cost_usd_approx, untraced_numbers, numbers_checked, confidence, scripted}` |
+| error | `{code, message, retry_after_s?}` (budget_exceeded, provider_no_balance, already_answered, …) |
 
 Typical order: `token`* → (`tool_call` → `tool_result` → `chart`? → `caveat`?)* → `token`* →
-`caveat`* → `final`. An `error` ends the stream; the user message and any partial answer are still
-stored. Errors before the stream starts (auth, rate limit, too many streams, unknown conversation)
-are normal JSON error responses.
+`caveat`* → `final`. An `error` ends the stream. Errors before the stream starts (auth, rate limit,
+too many streams, `conversation_busy`, unknown conversation) are normal JSON error responses.
+
+`final.confidence` is `{level, sample_size}` for the weakest stored result the answer used, or null
+when it used none (`run_sql` and `run_python` results carry no rating). The model never sets it.
+`numbers_checked` counts the numbers the verifier compared, so an answer with no figures cannot
+look verified.
+
+Turns that do not finish: when the client leaves (Stop, a closed tab), the loop settles the budget
+to the prompt plus the text sent, which is an estimate, because the provider never reported usage
+for that call. What the user saw is stored as an assistant message with `evidence.partial` set to
+`stopped`, or to `failed` after a provider error that had already shown text. A failure that showed
+nothing stores no answer. Partial answers are never verified and never replayed to the model, and
+tool calls left without a result are dropped from the history, because a provider refuses them.
+
+One turn per conversation: a second `POST /chat/stream` for a conversation with a turn in progress
+gets 429 `conversation_busy` with `Retry-After: 2`. Rows are numbered when a turn starts, so two
+turns side by side would interleave. Stop takes effect at the agent's next frame, so the slot can
+stay taken for the rest of a tool run or a rate-limit wait.
+
+Retry: `{conversation_id, message, retry: true}` asks the last question again. The stored question
+is reused and the rows of the failed attempt are deleted, so nothing is duplicated. If the question
+already has a finished answer the stream is one `already_answered` error and no tokens are spent.
+If the text is not the last question, it is stored as a new one.
 
 Heartbeat: the agent runs in its own thread (`with_heartbeat` in `app/agent/streams.py`) and hands
 frames over a queue, so the response side stays free while a tool, a forecast job or the model is
@@ -284,8 +305,9 @@ for 30 s, which is why the heartbeat is 15 s. Tested through port 3000 with a lo
 provider: a 60 s silent tool run, a 60 s silent model and a 40 s rate-limit wait all finish, with no
 gap over about 15 s.
 
-REST: `POST/GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`,
-`GET /conversations/{id}/messages`, `GET/PUT /company/profile`.
+REST: `POST/GET /conversations` (`mine`, `dataset_id` filters), `GET/PATCH/DELETE
+/conversations/{id}`, `GET /conversations/{id}/messages`, `GET/PUT /company/profile`, and
+`GET /ai/usage` (today's tokens, the budget, when it resets, provider and model names, never keys).
 
 ## 9. Data model (migration 0010)
 
@@ -294,7 +316,9 @@ REST: `POST/GET /conversations`, `GET/PATCH/DELETE /conversations/{id}`,
 - `conversations`: tenant, user, dataset, title, summary, summarized_count, created/updated.
 - `messages`: tenant, conversation, role (user/assistant/tool), content, tool_calls, tool_call_id,
   evidence, caveats, reasoning (never returned by the API), model, tokens in/out/cached/reasoning,
-  cost_usd (approximate), latency_ms, created_at.
+  cost_usd (approximate), latency_ms, created_at. Tool rows keep their chart spec in
+  `evidence.chart`; the final assistant row keeps `untraced_numbers`, `numbers_checked` and
+  `confidence` in `evidence`; a cut-off answer has `evidence.partial`.
 - `agent_usage_daily`: (tenant, day) primary key, tokens.
 
 ## 10. Trade-offs and what to revisit

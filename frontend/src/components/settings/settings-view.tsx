@@ -1,21 +1,15 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import type { ReactNode } from "react";
 
 import { PageHeader } from "@/components/common/page-header";
 import { LocaleSwitcher } from "@/components/shell/locale-switcher";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { useAuth } from "@/lib/auth/auth-provider";
 
-function Row({ label, children }: { label: ReactNode; children: ReactNode }) {
-  return (
-    <div className="grid gap-1 py-3 sm:grid-cols-[12rem_1fr] sm:gap-4">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words">{children}</dd>
-    </div>
-  );
-}
+import { AiModelCard, AiUsageCard } from "./ai-usage-card";
+import { PrivacyCard } from "./privacy-card";
+import { Row } from "./settings-card";
 
 export function SettingsView() {
   const t = useTranslations("settings");
@@ -55,6 +49,9 @@ export function SettingsView() {
             </Row>
           </dl>
         </section>
+        <AiUsageCard />
+        <AiModelCard />
+        <PrivacyCard />
       </div>
     </>
   );

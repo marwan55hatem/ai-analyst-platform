@@ -127,7 +127,17 @@ def fit_insights(views: list[dict[str, Any]], limit: int) -> tuple[list[dict[str
 
 
 def _insight_evidence(insights: list[Insight]) -> list[dict[str, Any]]:
-    return [{"insight_id": str(i.id), "type": i.type, "evidence": i.evidence} for i in insights]
+    return [
+        {
+            "insight_id": str(i.id),
+            "type": i.type,
+            "title": i.title,
+            "confidence": i.confidence,
+            "sample_size": i.sample_size,
+            "evidence": i.evidence,
+        }
+        for i in insights
+    ]
 
 
 def get_insights(ctx: AgentContext, args: InsightArgs) -> ToolResult:

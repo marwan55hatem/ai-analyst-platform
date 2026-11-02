@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -120,6 +121,43 @@ export function analysedUser(browser: Browser, file: string): Promise<DemoUser> 
     return user;
   })();
   return shared;
+}
+
+/** Send a question from the composer (typed into the box, Enter to send). */
+export async function sendQuestion(page: Page, question: string, locale: Locale = "en"): Promise<void> {
+  const box = page.getByRole("textbox", { name: msg(locale, "chat.composer.label") });
+  await box.fill(question);
+  await box.press("Enter");
+}
+
+/** The answer to the latest question. */
+export function lastAnswer(page: Page) {
+  return page.getByTestId("answer").last();
+}
+
+/**
+ * Ask a question and wait for the finished answer. Each answer must carry the scripted model's
+ * mark: an answer from a real model fails here, on top of the provider check in global-setup.
+ */
+export async function askQuestion(page: Page, question: string, locale: Locale = "en") {
+  const before = await page.getByTestId("answer").count();
+  await sendQuestion(page, question, locale);
+  await expect(page.getByTestId("answer")).toHaveCount(before + 1, { timeout: 30_000 });
+  const answer = lastAnswer(page);
+  await expect(answer).toHaveAttribute("data-status", "done", { timeout: 60_000 });
+  await expect(answer.getByTestId("test-model")).toBeVisible();
+  return answer;
+}
+
+/** Spend the demo company's whole budget for today, in the real table the agent reads. */
+export function spendDailyBudget(email: string): void {
+  const sql =
+    "INSERT INTO agent_usage_daily (id, tenant_id, day, tokens) " +
+    "SELECT gen_random_uuid(), tenant_id, (now() AT TIME ZONE 'utc')::date, 2000000000 " +
+    `FROM users WHERE email = '${email}' ` +
+    "ON CONFLICT (tenant_id, day) DO UPDATE SET tokens = EXCLUDED.tokens";
+  const command = `psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "${sql}"`;
+  execFileSync("docker", ["compose", "exec", "-T", "postgres", "sh", "-c", command], { cwd: REPO_ROOT, stdio: "pipe" });
 }
 
 /** Sign in through the login page in the given language. */

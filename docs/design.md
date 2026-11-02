@@ -104,6 +104,18 @@ Contrast was measured with a WCAG relative-luminance script. axe (`color-contras
 - **Errors:** every backend error `code` maps to a translated message that says what happened and what to do next. Errors don't apologise. Form errors are linked to their fields with `aria-describedby`/`aria-invalid`.
 - **Motion:** two moments only, the needle settling and a spinner while work runs. Sheets slide because that answers a user action. Everything else is instant, and `prefers-reduced-motion` disables all of it.
 
+## Chat
+
+The chat is a report you can question, not a messenger. The question is a quiet tonal block at the end edge; the answer has no bubble and runs at reading width, because it is the document.
+
+- **Answer order:** text, charts, warnings, then the trust line, Copy and "How I got this". While an answer streams, only the text and one progress line show.
+- **Trust line:** chips with an icon and a word. "N numbers traced to your data" appears only when the verifier compared at least one number and none failed. An answer that was cut off shows "Numbers not checked". Untraced numbers get a warning panel in `warn` that names each number, never `bad`: they need checking, they are not proven wrong.
+- **Direction:** every block has `dir="auto"`, so Arabic and English answers each align on their own in either UI language. Numbers are wrapped in `<bdi>`; code and SQL are always LTR.
+- **Evidence:** "How I got this" is closed by default and mounts nothing until opened, because one result can hold 1,000 rows. Tables show the first 50 and say "N of M rows".
+- **Safety:** answers render through `react-markdown` with an allowlist. Raw HTML is dropped and images never render, because a planted address would be fetched on load.
+- **Announcements:** one polite live region says when an answer starts and reads it when it ends, never per token. Errors use `role="alert"`, and the rate-limit countdown announces once.
+- **Phone:** the title stays on one row with the conversations button, because the height belongs to the conversation. Tables and code scroll inside their own box.
+
 ## Charts
 
 The wrappers live in `frontend/src/components/charts`: `ChartFrame`, `LineBandChart`, `BarChart`, `Heatmap`, `Sparkline`, `RangeBar` and `SignedBars`. Only `LineBandChart` uses Recharts; the others are plain HTML and SVG, which keeps them light and makes RTL work without special cases.

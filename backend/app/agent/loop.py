@@ -9,12 +9,13 @@ import json
 from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 
 from app.agent import events
 from app.agent.budget import BudgetExceededError, TokenBudget
+from app.agent.confidence import answer_confidence
 from app.agent.context import is_replayable, prompt_estimate, shrink_tool_results
 from app.agent.events import AgentEvent
 from app.agent.tools import (
@@ -26,7 +27,7 @@ from app.agent.tools import (
     parse_arguments,
 )
 from app.agent.untrusted import find_injection, wrap_tool_output
-from app.agent.verifier import caveat_text, untraced_numbers
+from app.agent.verifier import caveat_text, count_checked_numbers, untraced_numbers
 from app.core.config import Settings
 from app.llm.base import LLMClient, LLMError, LLMRequestTooLargeError, LLMToolCallError
 from app.llm.pricing import approximate_cost_usd
@@ -119,8 +120,11 @@ class AgentLoop:
         self.outcome = TurnOutcome()
         self._repaired = False
         self._trimmed = False
+        self._shown = ""  # text of the model turn in progress, already sent to the user
 
-    def run(self, system: str, history: list[ChatMessage], question: str) -> Iterator[AgentEvent]:
+    def run(
+        self, system: str, history: list[ChatMessage], question: str
+    ) -> Generator[AgentEvent, None, None]:
         """Yield the events of one question; `self.outcome` holds what to persist."""
         messages = [ChatMessage("system", system), *history, ChatMessage("user", question)]
         specs = [tool.spec() for tool in self.tools]
@@ -156,12 +160,33 @@ class AgentLoop:
                         content=wrapped,
                         tool_call_id=call.id,
                         tool_name=call.name,
-                        evidence={"ok": result.ok, **result.evidence},
+                        evidence={
+                            "ok": result.ok,
+                            "summary": result.summary,
+                            **result.evidence,
+                            **({"chart": result.chart} if result.chart else {}),
+                        },
                         caveats=result.caveats,
                     )
                 )
             _forget_bad_calls(messages, bad_calls, sorted(by_name))
         yield from self._finish(seen_results, question)
+
+    def close_turn(self, reason: Literal["stopped", "failed"]) -> None:
+        """Store what the user saw of a turn that never reached its final answer.
+
+        The record is marked `partial`: its numbers were never verified and it is not replayed to
+        the model. A failure that showed nothing leaves no record, so the question stays open.
+        """
+        if self._shown or reason == "stopped":
+            self.outcome.records.append(
+                Record(
+                    role="assistant",
+                    content=self._shown,
+                    evidence={"partial": reason, "tool_calls": self.outcome.tool_calls},
+                    model=self.model,
+                )
+            )
 
     def _fit_prompt(self, messages: list[ChatMessage], specs: list[ToolSpec]) -> None:
         """Trim older tool results, then all of them, when the prompt is over the limit."""
@@ -198,11 +223,13 @@ class AgentLoop:
             return None
         completion: Completion | None = None
         shown = False
+        stream = self.llm.chat(messages, specs, model=self.model)
         try:
-            for event in self.llm.chat(messages, specs, model=self.model):
+            for event in stream:
                 if isinstance(event, TextDelta):
                     if event.text:
                         shown = True
+                        self._shown += event.text
                         yield events.token(event.text)
                 elif isinstance(event, RateLimitWait):
                     yield events.rate_limited(event.retry_in_s)
@@ -232,14 +259,21 @@ class AgentLoop:
             self.budget.settle(reserved, 0)
             yield from self._fail(exc)
             return None
+        except GeneratorExit:  # the client left; pay for the prompt and the text it received
+            sent = estimate - self.settings.llm_max_output_tokens
+            self.budget.settle(reserved, sent + estimate_tokens(self._shown))
+            raise
         except Exception:
             self.budget.settle(reserved, 0)
             raise
+        finally:
+            getattr(stream, "close", lambda: None)()
         if completion is None:
             self.budget.settle(reserved, 0)
             self.outcome.error = "provider_error"
             yield events.error("provider_error", "The model stream ended without a result.")
             return None
+        self._shown = ""
         # A provider that reports no usage is charged the reservation, never nothing.
         self.budget.settle(reserved, completion.usage.total_tokens or reserved)
         self.outcome.truncated = completion.finish_reason == "length" and bool(completion.text)
@@ -338,6 +372,13 @@ class AgentLoop:
     def _finish(self, seen_results: list[Any], question: str) -> Iterator[AgentEvent]:
         text = self.outcome.final_text
         untraced = untraced_numbers(text, seen_results, question)
+        trust = {
+            "untraced_numbers": untraced,
+            "numbers_checked": count_checked_numbers(text, question),
+            "scripted": self.scripted,
+            "confidence": answer_confidence(self.outcome.records),
+            "tool_calls": self.outcome.tool_calls,
+        }
         caveats: list[dict[str, Any]] = []
         if untraced:
             message = caveat_text(untraced)
@@ -354,15 +395,13 @@ class AgentLoop:
         if last is not None:
             last.content = text
             last.caveats = caveats
-            last.evidence = {"untraced_numbers": untraced, "tool_calls": self.outcome.tool_calls}
+            last.evidence = trust
         yield AgentEvent(
             "final",
             {
                 "text": text,
                 "model": self.model,
-                "scripted": self.scripted,
-                "untraced_numbers": untraced,
-                "tool_calls": self.outcome.tool_calls,
+                **trust,
                 "usage": {
                     "tokens_in": self.outcome.tokens_in,
                     "tokens_out": self.outcome.tokens_out,
