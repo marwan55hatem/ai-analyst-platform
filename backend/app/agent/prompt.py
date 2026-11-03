@@ -7,22 +7,36 @@ from app.agent.untrusted import neutralise
 from app.models.agent import BusinessProfile
 from app.models.dataset import Dataset
 
-PROMPT_VERSION = "system_v2"
+DEFAULT_PROMPT_VERSION = "v3"
 _PROMPTS = Path(__file__).with_name("prompts")
 LANGUAGES = {"en": "English", "ar": "Arabic"}
 
 
+def prompt_versions() -> list[str]:
+    """Return the available prompt versions ("v1", "v2", ...) from the prompts folder."""
+    names = (path.stem.removeprefix("system_") for path in _PROMPTS.glob("system_v*.md"))
+    return sorted(names, key=lambda name: int(name[1:]) if name[1:].isdigit() else 0)
+
+
 @lru_cache
-def load_prompt(version: str = PROMPT_VERSION) -> str:
-    """Return the text of a versioned system prompt."""
-    return (_PROMPTS / f"{version}.md").read_text(encoding="utf-8")
+def load_prompt(version: str = DEFAULT_PROMPT_VERSION) -> str:
+    """Return the text of a versioned system prompt; raise ValueError for an unknown version."""
+    known = prompt_versions()
+    if version not in known:
+        raise ValueError(
+            f"Unknown prompt version {version!r} (AGENT_PROMPT_VERSION); known: {', '.join(known)}"
+        )
+    return (_PROMPTS / f"system_{version}.md").read_text(encoding="utf-8")
 
 
 def build_system_prompt(
-    profile: BusinessProfile | None, dataset: Dataset, summary: str = ""
+    profile: BusinessProfile | None,
+    dataset: Dataset,
+    summary: str = "",
+    version: str = DEFAULT_PROMPT_VERSION,
 ) -> str:
     """Combine the rules, the company profile, the dataset name and the conversation summary."""
-    parts = [load_prompt()]
+    parts = [load_prompt(version)]
     lines = [f"- Dataset: {neutralise(dataset.name)} (table `data`)"]
     if profile is not None:
         fields = (

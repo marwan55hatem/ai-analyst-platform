@@ -210,7 +210,9 @@ class ChatSession:
             model=choose_model(self.question, self.settings),
             scripted=isinstance(llm, ScriptedAnalyst),
         )
-        system = build_system_prompt(profile, dataset, conversation.summary)
+        system = build_system_prompt(
+            profile, dataset, conversation.summary, self.settings.agent_prompt_version
+        )
         final: AgentEvent | None = None
         failure: AgentEvent | None = None
         stopped = False
@@ -259,6 +261,9 @@ class ChatSession:
                 caveats=jsonable(record.caveats),
                 reasoning=record.reasoning,
                 model=record.model,
+                prompt_version=(
+                    self.settings.agent_prompt_version if record.role == "assistant" else None
+                ),
                 tokens_in=record.usage.prompt_tokens,
                 tokens_out=record.usage.completion_tokens,
                 tokens_cached=record.usage.cached_tokens,

@@ -16,7 +16,7 @@ from app.llm.base import (
     LLMTimeoutError,
     LLMToolCallError,
 )
-from app.llm.openai_compatible import OpenAICompatibleClient
+from app.llm.openai_compatible import OpenAICompatibleClient, _duration_s
 from app.llm.types import ChatMessage, Completion, RateLimitWait, TextDelta, ToolCall
 from tests.test_llm_client import TOOL, Handler, delta, sse
 
@@ -315,3 +315,98 @@ def test_rate_limit_inside_a_stream_is_typed_but_not_retried() -> None:
     with pytest.raises(LLMRateLimitError):
         run(made)
     assert sleeps == []
+
+
+# -- tokens-per-minute window ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "seconds"),
+    [("7.66s", 7.66), ("1m2.5s", 62.5), ("120ms", 0.12), ("2", 2.0), ("1h", 3600.0)],
+)
+def test_reset_durations_are_parsed(raw: str, seconds: float) -> None:
+    assert _duration_s(raw) == pytest.approx(seconds)
+
+
+@pytest.mark.parametrize("raw", [None, "", "soon", "5x", "1m soon"])
+def test_unreadable_reset_durations_are_ignored(raw: str | None) -> None:
+    assert _duration_s(raw) is None
+
+
+def windowed(remaining: str | None, reset: str | None, now: list[float]) -> Any:
+    headers = {}
+    if remaining is not None:
+        headers["x-ratelimit-remaining-tokens"] = remaining
+    if reset is not None:
+        headers["x-ratelimit-reset-tokens"] = reset
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers=headers, content=sse(delta(content="ok")))
+
+    return groq(handler, max_output_tokens=3000, clock=lambda: now[0])
+
+
+def test_waits_for_the_window_when_the_next_request_would_not_fit() -> None:
+    now = [100.0]
+    made, sleeps = windowed("10", "20s", now)
+    run(made)
+    assert sleeps == []  # nothing known before the first response
+    events = run(made)
+    assert sleeps == [20.0]
+    assert [e for e in events if isinstance(e, RateLimitWait)] == [RateLimitWait(20)]
+    assert events[-1].text == "ok"
+
+
+def test_no_wait_when_the_window_has_room() -> None:
+    made, sleeps = windowed("7900", "1s", [100.0])
+    run(made)
+    run(made)
+    assert sleeps == []
+
+
+def test_the_answer_output_is_taken_off_the_window() -> None:
+    headers = {"x-ratelimit-remaining-tokens": "600", "x-ratelimit-reset-tokens": "9s"}
+    usage = {"choices": [], "usage": {"prompt_tokens": 50, "completion_tokens": 580}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers=headers, content=sse(delta(content="ok"), usage))
+
+    made, sleeps = groq(handler, clock=lambda: 10.0)
+    run(made)
+    run(made)
+    assert sleeps == [9.0]  # 600 left at the start, 20 after the answer: the next call waits
+
+
+def test_no_wait_once_the_window_has_refilled() -> None:
+    now = [100.0]
+    made, sleeps = windowed("10", "20s", now)
+    run(made)
+    now[0] = 121.0
+    run(made)
+    assert sleeps == []
+
+
+@pytest.mark.parametrize(("remaining", "reset"), [(None, "20s"), ("10", None), ("x", "20s")])
+def test_no_wait_without_readable_headers(remaining: str | None, reset: str | None) -> None:
+    made, sleeps = windowed(remaining, reset, [100.0])
+    run(made)
+    run(made)
+    assert sleeps == []
+
+
+def test_window_wait_is_capped() -> None:
+    made, sleeps = windowed("10", "5m", [100.0])
+    run(made)
+    run(made)
+    assert sleeps == [65.0]
+
+
+def test_json_requests_wait_for_the_window_too() -> None:
+    answer = {"choices": [{"message": {"content": json.dumps({"ok": True})}}]}
+    headers = {"x-ratelimit-remaining-tokens": "10", "x-ratelimit-reset-tokens": "3s"}
+    made, sleeps = groq(
+        lambda request: httpx.Response(200, headers=headers, json=answer), clock=lambda: 50.0
+    )
+    assert made.complete_json("system", "user") == {"ok": True}
+    assert made.complete_json("system", "user") == {"ok": True}
+    assert sleeps == [3.0]

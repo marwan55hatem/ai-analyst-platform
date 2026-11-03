@@ -20,7 +20,7 @@ from app.agent import service as chat_service
 from app.agent import streams
 from app.agent.context import TRIM_NOTE, prompt_estimate, shrink_tool_results
 from app.agent.loop import OUT_OF_TOKENS_ANSWER, REPAIR_NOTE
-from app.agent.prompt import PROMPT_VERSION, load_prompt
+from app.agent.prompt import DEFAULT_PROMPT_VERSION, load_prompt
 from app.agent.streams import HEARTBEAT_FRAME, with_heartbeat
 from app.agent.tools import TOOLS_BY_NAME
 from app.agent.tools import findings as findings_tools
@@ -612,7 +612,7 @@ def test_twenty_insights_fall_back_to_titles_within_the_cap() -> None:
 
 
 def test_prompt_defines_net_revenue_and_is_versioned() -> None:
-    assert PROMPT_VERSION == "system_v2"
+    assert DEFAULT_PROMPT_VERSION == "v3"
     prompt = load_prompt()
     assert "صافي الإيرادات" in prompt and "dead_stock" in prompt
 
@@ -771,3 +771,15 @@ def test_role_refinement_sends_masked_values_only_to_groq(
     rows = [f"contact,note\nbuyer{i}@example.com,call me on 07700 900{i:03d}" for i in range(1)]
     upload_ready(client, owner, "\n".join(rows).encode(), "contacts.csv")
     assert "@example.com" not in "\n".join(bodies) and "07700" not in "\n".join(bodies)
+
+
+def test_tool_schemas_are_inlined_without_titles() -> None:
+    for tool in TOOLS_BY_NAME.values():
+        text = json.dumps(tool.spec().parameters)
+        assert "$ref" not in text and "$defs" not in text, tool.name
+    scenario = TOOLS_BY_NAME["what_if"].spec().parameters["properties"]["scenarios"]["items"]
+    assert scenario["required"] == ["lever", "change_pct"]
+    assert set(scenario["properties"]) == {"lever", "change_pct", "scope", "target"}
+    assert "title" not in scenario and "title" not in scenario["properties"]["lever"]
+    chart = TOOLS_BY_NAME["make_chart"].spec().parameters["properties"]
+    assert "title" in chart and "title" not in chart["title"]  # the argument, not the annotation

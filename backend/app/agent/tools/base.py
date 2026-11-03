@@ -100,13 +100,40 @@ class Tool:
 
     def spec(self) -> ToolSpec:
         """Return the spec sent to the model (JSON schema from the argument model)."""
-        schema = self.args_model.model_json_schema()
-        schema.pop("title", None)
-        for prop in schema.get("properties", {}).values():
-            prop.pop("title", None)
+        full = self.args_model.model_json_schema()
+        schema: dict[str, Any] = plain_schema(full, full.get("$defs", {}))
         schema.setdefault("properties", {})
         schema["additionalProperties"] = False
         return ToolSpec(name=self.name, description=self.description, parameters=schema)
+
+
+def plain_schema(node: Any, defs: dict[str, Any]) -> Any:
+    """Inline `$ref`s and drop generated titles from a JSON schema.
+
+    A live run on Groq (Step 8c) sent `what_if` scenarios without their required `lever` and
+    `change_pct`: they sat behind `$ref: #/$defs/ScenarioIn`. Inlined, every field is visible where
+    it is used. Only schema annotations named `title` go; a property called `title` stays.
+    """
+    if not isinstance(node, dict):
+        return node
+    ref = node.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        merged = {
+            **defs[ref.removeprefix("#/$defs/")],
+            **{k: v for k, v in node.items() if k != "$ref"},
+        }
+        return plain_schema(merged, defs)
+    out = {k: v for k, v in node.items() if k not in ("$defs", "title")}
+    if isinstance(out.get("properties"), dict):
+        out["properties"] = {
+            name: plain_schema(sub, defs) for name, sub in out["properties"].items()
+        }
+    if "items" in out:
+        out["items"] = plain_schema(out["items"], defs)
+    for key in ("anyOf", "oneOf", "allOf"):
+        if isinstance(out.get(key), list):
+            out[key] = [plain_schema(sub, defs) for sub in out[key]]
+    return out
 
 
 class ToolArgumentError(Exception):

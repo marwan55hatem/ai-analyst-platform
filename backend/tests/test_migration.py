@@ -40,6 +40,8 @@ def test_migration_creates_schema_and_is_safe_to_run_twice(empty_url: URL) -> No
         "role",
         "is_active",
     } <= user_columns
+    message_columns = {c["name"] for c in inspect(engine).get_columns("messages")}
+    assert "prompt_version" in message_columns
     engine.dispose()
     command.downgrade(cfg, "base")
     engine = create_engine(empty_url)
