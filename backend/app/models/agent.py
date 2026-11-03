@@ -93,6 +93,8 @@ class Message(TenantMixin, Base):
     # Model reasoning is replayed to the provider (DeepSeek thinking mode) but never returned.
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The system prompt version (AGENT_PROMPT_VERSION) of an assistant turn; null on other rows.
+    prompt_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
     tokens_in: Mapped[int] = mapped_column(Integer, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, default=0)
     tokens_cached: Mapped[int] = mapped_column(Integer, default=0)

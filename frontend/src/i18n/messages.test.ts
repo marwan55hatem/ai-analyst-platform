@@ -46,4 +46,14 @@ describe("messages", () => {
   it("no message is empty", () => {
     expect(Object.entries({ ...EN, ...AR }).filter(([, v]) => !v.trim())).toEqual([]);
   });
+
+  it("Arabic uses one term for churn (فقدان العملاء), never التسرب", () => {
+    expect(Object.entries(AR).filter(([, v]) => v.includes("التسرب"))).toEqual([]);
+    expect(AR["chat.tools.get_churn_risk"]).toContain("فقدان العملاء");
+  });
+
+  it("Arabic chat labels name the question and the analyst's answer", () => {
+    expect(AR["chat.you"]).toBe("سؤالك");
+    expect(AR["chat.analyst"]).toBe("إجابة المحلل");
+  });
 });

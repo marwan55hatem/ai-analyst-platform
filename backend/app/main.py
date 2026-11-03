@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.agent.prompt import load_prompt
 from app.api.v1 import analysis, auth, chat, datasets, forecast, health, team, timeseries, whatif
 from app.core.config import get_settings, warn_derived_pseudonym_secret
 from app.core.errors import register_error_handlers
@@ -19,6 +20,7 @@ def create_app() -> FastAPI:
     configure_logging(settings.log_level)
     warn_derived_pseudonym_secret(settings)
     ensure_provider_allowed(settings)
+    load_prompt(settings.agent_prompt_version)  # a wrong AGENT_PROMPT_VERSION stops the api here
     application = FastAPI(title=settings.app_name, version=__version__)
     register_error_handlers(application)
     application.add_middleware(RequestIdMiddleware)

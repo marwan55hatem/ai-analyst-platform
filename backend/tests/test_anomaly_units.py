@@ -7,7 +7,7 @@ import pytest
 
 from app.ml.anomaly import detect
 from app.ml.base import DataFacts
-from app.ml.modules.anomalies import AnomalyModule
+from app.ml.modules.anomalies import AnomalyModule, _mix_text, _order_mix
 
 SEED = 42
 
@@ -178,3 +178,34 @@ def test_data_facts_come_from_profiles() -> None:
     assert facts.distinct == {"customer_id": 40}
     assert facts.date_span_days == 99 and facts.granularity == "daily"
     assert facts.pii_roles == frozenset({"customer_id"})
+
+
+def _event(start: int, end: int, kind: str = "spike") -> detect.Event:
+    return detect.Event(start, end, kind, 0.0, 0.0, 5.0)
+
+
+def test_order_mix_compares_with_typical_days_and_skips_other_anomalies() -> None:
+    orders = np.array([10.0, 10.0, 99.0, 10.0, 40.0])
+    revenue = np.array([100.0, 100.0, 9_900.0, 100.0, 800.0])
+    series = {"unit": "day", "orders": orders, "revenue": revenue}
+    found = [_event(2, 2), _event(4, 4)]
+    mix = _order_mix(series, found[1], found)
+    assert mix["baseline_periods"] == 3  # day 2 is another anomaly, so it is not typical
+    assert mix["orders_per_day"] == {"actual": 40.0, "baseline": 10.0, "ratio": 4.0}
+    assert mix["average_order_value"] == {"actual": 20.0, "baseline": 10.0, "change_pct": 100.0}
+    text = _mix_text(mix, "day", "USD", "en")
+    assert text.startswith("Orders: 40 a day against 10 on a typical day before (4.0x)")
+    assert "average order value" in text and "(+100.0%)" in text
+
+
+def test_order_mix_without_history_or_orders() -> None:
+    series = {"unit": "week", "orders": np.array([0.0, 0.0]), "revenue": np.array([0.0, -5.0])}
+    first = _order_mix(series, _event(0, 0), [_event(0, 0)])
+    assert first["orders_per_week"] == {"actual": 0.0, "baseline": None, "ratio": None}
+    assert first["average_order_value"] == {"actual": None, "baseline": None, "change_pct": None}
+    assert _mix_text(first, "week", "USD", "en") == ""
+    second = _order_mix(series, _event(1, 1, "drop"), [_event(1, 1, "drop")])
+    assert second["average_order_value"] == {"actual": None, "baseline": None, "change_pct": None}
+    assert _mix_text(second, "week", "USD", "en") == (
+        "Orders: 0 a week against 0 on a typical week before."
+    )

@@ -101,7 +101,7 @@ def test_anomalies_endpoint_lists_events_shifts_and_rows(
     client: TestClient, tmp_path: Path
 ) -> None:
     owner = register(client)
-    content, _ = _planted(tmp_path, 11)
+    content, facts = _planted(tmp_path, 11)
     _, run, _ = analyze(client, owner, content)
     response = client.get(f"{API}/analysis-runs/{run['id']}/anomalies", headers=owner.headers)
     assert response.status_code == 200, response.text
@@ -113,6 +113,21 @@ def test_anomalies_endpoint_lists_events_shifts_and_rows(
     assert body["row_anomalies"]["counts"]["zero_quantity"] == 4
     assert {i["type"] for i in body["insights"]} >= {"anomaly", "anomaly_summary", "row_anomalies"}
     assert all("evidence" in i for i in body["insights"])
+    # Orders and average order value against a typical day: spikes are planted as extra orders,
+    # drops as a day with a single order.
+    planted = {p["date"]: p["kind"] for p in facts["planted"]["anomalies"]["points"]}
+    checked = [e for e in body["events"] if e["start"] in planted]
+    assert len(checked) >= 4
+    for event in checked:
+        orders, aov = event["orders_per_day"], event["average_order_value"]
+        assert event["baseline_periods"] > 0 and orders["baseline"] > 1
+        assert aov["baseline"] is not None and aov["baseline"] > 0
+        if planted[event["start"]] == "spike":
+            assert orders["actual"] > 2 * orders["baseline"], event
+        else:
+            assert orders["actual"] == 1, event
+    anomaly = next(i for i in body["insights"] if i["type"] == "anomaly")
+    assert "on a typical day before" in anomaly["summary"]
 
 
 @pytest.mark.slow

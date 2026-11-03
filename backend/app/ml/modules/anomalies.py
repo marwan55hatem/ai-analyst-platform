@@ -187,6 +187,68 @@ def _extra_features(series: dict[str, Any]) -> dict[str, np.ndarray]:
     return extra
 
 
+def _order_mix(
+    series: dict[str, Any], event: detect.Event, found: list[detect.Event]
+) -> dict[str, Any]:
+    """Orders and average order value per period during an event and on the periods before it.
+
+    The baseline is the drill-down's window (BASELINE_PERIODS before the start) without other
+    flagged periods, so it reads as "a typical period". Average order value is net revenue per
+    order, the same measure the detector uses. The ratio and the change are worked out here, so the
+    agent can quote them instead of dividing figures itself.
+    """
+    unit, orders, revenue = series["unit"], series["orders"], series["revenue"]
+    flagged = {i for e in found for i in range(e.start, e.end + 1)}
+    first = max(0, event.start - BASELINE_PERIODS[unit])
+    base = [i for i in range(first, event.start) if i not in flagged]
+    during = list(range(event.start, event.end + 1))
+
+    def per_period(index: list[int]) -> tuple[float | None, float | None]:
+        if not index:
+            return None, None
+        count = float(sum(orders[i] for i in index))
+        money = float(sum(revenue[i] for i in index))
+        return round(count / len(index), 1), round(money / count, 2) if count > 0 else None
+
+    orders_now, aov_now = per_period(during)
+    orders_before, aov_before = per_period(base)
+    ratio = (
+        round(orders_now / orders_before, 1) if orders_now is not None and orders_before else None
+    )
+    change = (
+        round(100.0 * (aov_now / aov_before - 1), 1)
+        if aov_now is not None and aov_before is not None and aov_before > 0
+        else None
+    )
+    return {
+        f"orders_per_{unit}": {"actual": orders_now, "baseline": orders_before, "ratio": ratio},
+        "average_order_value": {"actual": aov_now, "baseline": aov_before, "change_pct": change},
+        "baseline_periods": len(base),
+    }
+
+
+def _mix_text(mix: dict[str, Any], unit: str, currency: str | None, locale: str) -> str:
+    orders, aov = mix[f"orders_per_{unit}"], mix["average_order_value"]
+    if orders["baseline"] is None:
+        return ""
+    text = (
+        f"Orders: {fmt_number(orders['actual'], locale)} a {unit} against "
+        f"{fmt_number(orders['baseline'], locale)} on a typical {unit} before"
+        + (f" ({fmt_number(orders['ratio'], locale, 1)}x)" if orders["ratio"] is not None else "")
+    )
+    if aov["actual"] is not None and aov["baseline"] is not None:
+        text += (
+            f"; average order value {fmt_money(aov['actual'], currency, locale)} against "
+            f"{fmt_money(aov['baseline'], currency, locale)}"
+            + (
+                f" ({'+' if aov['change_pct'] > 0 else ''}{fmt_pct(aov['change_pct'], locale)})"
+                if aov["change_pct"] is not None
+                else ""
+            )
+        )
+    return text + "."
+
+
 def _basis_warnings(ctx: AnalysisContext) -> list[str]:
     warnings = []
     refunds = refund_rows(ctx)
@@ -239,11 +301,14 @@ def _event_insight(
         else "far from the expected level"
     )
     contributors = drill["text"]
+    mix = _order_mix(series, event, found)
+    mix_text = _mix_text(mix, unit, cur, loc)
     summary = (
         f"Net revenue {'jumped' if event.kind == 'spike' else 'fell'} on {when}: "
         f"{fmt_money(event.actual, cur, loc)} against an expected "
         f"{fmt_money(event.expected, cur, loc)} "
         f"({size}, robust z {fmt_number(event.peak_z, loc, 1)})."
+        + (f" {mix_text}" if mix_text else "")
         + (f" {contributors}" if contributors else "")
         + f" {NOT_CAUSES}"
     )
@@ -291,8 +356,10 @@ def _event_insight(
             "actual": round(event.actual, 2),
             "expected": round(event.expected, 2),
             "change": round(event.change, 2),
+            "ratio_to_expected": round(ratio, 1) if ratio is not None else None,
             "peak_z": round(event.peak_z, 2),
             "methods": event.methods,
+            **mix,
             "likely_contributors": drill["contributors"],
             "baseline": drill["baseline"],
             "window": window,
@@ -537,8 +604,10 @@ def _summary_insight(
             "actual": round(e.actual, 2),
             "expected": round(e.expected, 2),
             "change": round(e.change, 2),
+            "ratio_to_expected": round(e.actual / e.expected, 1) if e.expected > 0 else None,
             "peak_z": round(e.peak_z, 2),
             "methods": e.methods,
+            **_order_mix(series, e, found),
         }
         for e in found
     ]

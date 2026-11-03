@@ -13,11 +13,17 @@ Groq specifics (the `groq` dialect):
 - A malformed or hallucinated tool call comes back as the error code `tool_use_failed`, as an HTTP
   400 or as an `error` chunk inside the stream.
 - 429 carries `Retry-After`; rate limits refill continuously, so most waits are under a minute.
+- Every response carries `x-ratelimit-remaining-tokens` and `x-ratelimit-reset-tokens` (the
+  tokens-per-minute window, read when the response starts). The answer's output tokens are
+  taken off once it ends. Before the next request the client waits for the window when the
+  estimated prompt would not fit (Groq does not count the output cap when it admits a request),
+  so the agent's calls within one answer do not run into a 429.
 """
 
 import json
 import math
 import random
+import re
 import time
 from collections.abc import Callable, Iterator
 from typing import Any, Literal
@@ -46,6 +52,7 @@ from app.llm.types import (
     ToolCall,
     ToolSpec,
     Usage,
+    estimate_tokens,
 )
 
 logger = structlog.get_logger()
@@ -54,6 +61,8 @@ MAX_BACKOFF_S = 30.0
 MAX_RATE_LIMIT_WAIT_S = 65
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 Dialect = Literal["deepseek", "groq"]
+_DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
+_DURATION_UNITS = {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}
 
 
 class OpenAICompatibleClient:
@@ -74,8 +83,9 @@ class OpenAICompatibleClient:
         key_env: str = "LLM_API_KEY",
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Configure the client; `transport` lets tests mock the HTTP layer."""
+        """Configure the client; `transport`, `sleep` and `clock` let tests mock the I/O."""
         if not api_key:
             raise LLMAuthError(f"{key_env} is empty; set it in .env to use the real provider.")
         self._thinking = thinking
@@ -86,6 +96,9 @@ class OpenAICompatibleClient:
         self._reasoning_effort = reasoning_effort
         self._key_env = key_env
         self._sleep = sleep
+        self._clock = clock
+        # Tokens left in the provider's per-minute window and when it is full again (monotonic).
+        self._window: tuple[int, float] | None = None
         self._http = httpx.Client(
             base_url=base_url.rstrip("/"),
             headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
@@ -107,8 +120,13 @@ class OpenAICompatibleClient:
         started = time.monotonic()
         streaming = False
         for attempt in range(self._max_retries + 1):
+            pause = self._window_wait(body)
+            if pause > 0:
+                yield RateLimitWait(math.ceil(pause))
+                self._sleep(pause)
             try:
                 with self._http.stream("POST", "/chat/completions", json=body) as response:
+                    self._note_window(response)
                     if response.status_code != 200:
                         error = _map_error(
                             response.status_code, response.read(), response, self._key_env
@@ -119,7 +137,10 @@ class OpenAICompatibleClient:
                     else:
                         # From the first byte on, nothing is retried: text may already be shown.
                         streaming = True
-                        yield from _parse_stream(response, model, started, self._key_env)
+                        for event in _parse_stream(response, model, started, self._key_env):
+                            if isinstance(event, Completion):
+                                self._spend_window(event.usage.completion_tokens)
+                            yield event
                         return
             except httpx.TimeoutException as exc:
                 raise LLMTimeoutError() from exc
@@ -147,8 +168,12 @@ class OpenAICompatibleClient:
             **self._provider_params(json_mode=True),
         }
         for attempt in range(self._max_retries + 1):
+            pause = self._window_wait(body)
+            if pause > 0:
+                self._sleep(pause)
             try:
                 response = self._http.post("/chat/completions", json=body)
+                self._note_window(response)
             except httpx.TimeoutException as exc:
                 raise LLMTimeoutError() from exc
             except httpx.TransportError as exc:
@@ -197,6 +222,37 @@ class OpenAICompatibleClient:
             "thinking": {"type": "enabled" if thinking else "disabled"},
         }
 
+    def _note_window(self, response: httpx.Response) -> None:
+        """Remember the provider's tokens-per-minute window from the rate-limit headers."""
+        remaining = response.headers.get("x-ratelimit-remaining-tokens")
+        reset = _duration_s(response.headers.get("x-ratelimit-reset-tokens"))
+        if remaining is None or reset is None:
+            return
+        try:
+            self._window = (int(float(remaining)), self._clock() + reset)
+        except ValueError:
+            return
+
+    def _spend_window(self, tokens: int) -> None:
+        """Take an answer's output tokens off the window (the headers predate the output)."""
+        if self._window is not None:
+            remaining, full_at = self._window
+            self._window = (remaining - tokens, full_at)
+
+    def _window_wait(self, body: dict[str, Any]) -> float:
+        """Return the seconds to wait for the per-minute window (0 when the request fits)."""
+        if self._window is None:
+            return 0.0
+        remaining, full_at = self._window
+        left = full_at - self._clock()
+        if left <= 0:
+            return 0.0
+        needed = estimate_tokens(json.dumps(body, ensure_ascii=False))
+        if needed <= remaining:
+            return 0.0
+        logger.info("llm_tpm_wait", needed=needed, remaining=remaining, wait_s=round(left, 2))
+        return min(float(MAX_RATE_LIMIT_WAIT_S), left)
+
     def _should_retry(self, error: LLMError, attempt: int) -> bool:
         if isinstance(error, LLMRateLimitError):
             if (error.retry_after_s or 0) > MAX_RATE_LIMIT_WAIT_S:
@@ -219,6 +275,21 @@ class OpenAICompatibleClient:
         self, attempt: int, response: httpx.Response | None, error: LLMError | None = None
     ) -> None:
         self._sleep(self._delay(attempt, response, error))
+
+
+def _duration_s(raw: str | None) -> float | None:
+    """Parse a rate-limit reset such as `7.66s`, `1m2.5s`, `120ms` or `2` (seconds)."""
+    if not raw:
+        return None
+    text = raw.strip()
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    parts = _DURATION_PART.findall(text)
+    if not parts or "".join(n + u for n, u in parts) != text:
+        return None
+    return sum(float(number) * _DURATION_UNITS[unit] for number, unit in parts)
 
 
 def _retry_after(response: httpx.Response | None) -> int | None:

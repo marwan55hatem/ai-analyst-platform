@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     agent_history_messages: int = Field(default=12, ge=2, le=100)
     agent_summary_after: int = Field(default=16, ge=4, le=500)
     agent_tool_output_chars: int = Field(default=12_000, ge=1_000, le=100_000)
+    agent_prompt_version: str = Field(default="v3", pattern=r"^v\d+$")
     chat_rate_limit_per_minute: int = Field(default=20, ge=1)
     chat_max_concurrent_streams: int = Field(default=2, ge=1, le=20)
     sandbox_url: str = "unix:///ipc/sandbox.sock"

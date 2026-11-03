@@ -80,6 +80,6 @@ describe("Answer", () => {
 
   it("names the answer in Arabic for screen readers", () => {
     show(turn({ status: "done", answer: "نص" }), "ar");
-    expect(screen.getByRole("article", { name: "أجاب المحلل" })).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "إجابة المحلل" })).toBeInTheDocument();
   });
 });
