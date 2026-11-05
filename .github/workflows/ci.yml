@@ -37,6 +37,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+      # Pango and HarfBuzz for WeasyPrint (report PDFs); the fonts themselves are in the repo
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
       - run: uv sync --directory backend --frozen
       - run: make lint
       # runner: 4 CPUs, ~16 GB; a worker peaks at ~700 MB, so 4 workers stay far below

@@ -21,6 +21,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { useAuth } from "@/lib/auth/auth-provider";
 import { cn } from "@/lib/utils";
 
+import { AlertsBell } from "./alerts-bell";
 import { LocaleSwitcher } from "./locale-switcher";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
@@ -122,6 +123,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="ms-auto flex shrink-0 items-center gap-1">
             <LocaleSwitcher labelClassName="hidden sm:inline" />
             <ThemeToggle />
+            <AlertsBell />
             <UserMenu />
           </div>
         </header>

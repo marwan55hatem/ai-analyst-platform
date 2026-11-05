@@ -60,6 +60,9 @@ class AnalysisRun(TenantMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Figures kept after the run (KPIs, latest month, forecast, churn, dead stock): a later run of
+    # the same version deletes this run's insights, but alerts and reports still compare these.
+    summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

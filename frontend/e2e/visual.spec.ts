@@ -70,8 +70,8 @@ test("chat and settings match their snapshots", async ({ browser, baseURL }, tes
   await setup.close();
 
   const views = [
-    { locale: "en", scheme: "light", width: 1440, urls: [chat, "/settings"] },
-    { locale: "ar", scheme: "light", width: 1440, urls: [chat, "/settings"] },
+    { locale: "en", scheme: "light", width: 1440, urls: [chat, "/settings", "/reports"] },
+    { locale: "ar", scheme: "light", width: 1440, urls: [chat, "/settings", "/reports"] },
     { locale: "en", scheme: "dark", width: 1440, urls: [chat, "/settings"] },
     { locale: "en", scheme: "light", width: 375, urls: [chat] },
   ] as const;
@@ -87,14 +87,17 @@ test("chat and settings match their snapshots", async ({ browser, baseURL }, tes
     for (const url of view.urls) {
       await page.waitForTimeout(2_100);
       await page.goto(url);
-      await settle(page, url === chat ? "[data-testid=answer-text]" : "[data-testid=privacy]");
-      const name = url === chat ? "chat" : "settings";
+      const ready = { [chat]: "[data-testid=answer-text]", "/settings": "[data-testid=alert-settings-form]" };
+      await settle(page, ready[url] ?? "[data-testid=tab-alerts]");
+      const name = url === chat ? "chat" : url.slice(1);
       await expect(page).toHaveScreenshot(`${name}-${view.locale}-${view.scheme}-${view.width}.png`, {
         mask: [
           page.locator("header"),
           page.getByTestId("conversation-list"),
           page.getByTestId("ai-usage"),
           page.locator("[aria-labelledby=account-h] dd"),
+          // Reports made by other specs differ in number, size and time between runs.
+          page.getByTestId("report-list"),
         ],
         maxDiffPixelRatio: 0.01,
         animations: "disabled",

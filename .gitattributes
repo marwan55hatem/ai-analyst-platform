@@ -2,3 +2,5 @@
 *.png binary
 *.jpg binary
 *.parquet binary
+*.ttf binary
+*.pdf binary

@@ -28,6 +28,11 @@ _MLFLOW = tempfile.mkdtemp(prefix=f"analyst-test-mlflow{WORKER_SUFFIX}-")
 for _d in (_STORAGE, _MLFLOW):
     atexit.register(shutil.rmtree, _d, ignore_errors=True)
 
+# WeasyPrint needs Pango; on Windows it comes from MSYS2 (see docs/reports.md). Linux finds it.
+_MSYS_PANGO = Path("C:/msys64/ucrt64/bin")
+if os.name == "nt" and "WEASYPRINT_DLL_DIRECTORIES" not in os.environ and _MSYS_PANGO.is_dir():
+    os.environ["WEASYPRINT_DLL_DIRECTORIES"] = str(_MSYS_PANGO)
+
 # Must be set before the app (and its cached settings) are imported.
 os.environ.update(
     {
@@ -110,7 +115,7 @@ def db(database: URL) -> Iterator[Session]:
     with get_engine().begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments, churn_scores, business_profiles, conversations, messages, agent_usage_daily RESTART IDENTITY CASCADE"
+                "TRUNCATE tenants, users, refresh_tokens, datasets, dataset_versions, column_profiles, cleaning_logs, analysis_runs, insights, model_runs, segment_assignments, churn_scores, business_profiles, conversations, messages, agent_usage_daily, reports, alerts, alert_settings RESTART IDENTITY CASCADE"
             )
         )
     with get_sessionmaker()() as session:

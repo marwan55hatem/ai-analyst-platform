@@ -29,7 +29,7 @@ from app.ml.quality import QualityContext
 from app.ml.roles import RoleMap
 from app.models.analysis import AnalysisRun, AnalysisStatus
 from app.models.dataset import DatasetVersion
-from app.services import storage
+from app.services import run_summary, storage
 from app.services.profiling.service import require_profile
 
 logger = structlog.get_logger()
@@ -166,6 +166,19 @@ def run_analysis(tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
                 failed.error = ANALYSIS_FAILED_MESSAGE
                 failed.finished_at = datetime.now(UTC)
                 db.commit()
+            return
+        _evaluate_alerts(db, tenant_id, run_id)
+
+
+def _evaluate_alerts(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
+    """Compare a finished run with the previous one; alerts never fail the run."""
+    from app.services import alerts  # local import: alerts reads runs through this module
+
+    try:
+        alerts.evaluate_run(db, tenant_id, run_id)
+    except Exception:
+        logger.exception("alert_evaluation_failed", run_id=str(run_id))
+        db.rollback()
 
 
 @contextmanager
@@ -211,7 +224,9 @@ def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
             run.progress = dict(progress)
             db.commit()
         _store_assignments(db, tenant_id, run, version.id, context, progress, collected)
+        summary = _summary(context, version, collected)
     run.progress = dict(progress)
+    run.summary = summary
     states = [m["status"] for m in progress["modules"].values()]
     InsightRepository(db, tenant_id).delete_for_version(version.id)
     repo = InsightRepository(db, tenant_id)
@@ -240,6 +255,21 @@ def _execute(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> None:
     run.finished_at = datetime.now(UTC)
     db.commit()
     logger.info("analysis_done", run_id=str(run.id), status=run.status, insights=len(collected))
+
+
+def _summary(
+    context: AnalysisContext, version: DatasetVersion, collected: list[Insight]
+) -> dict[str, Any] | None:
+    """Build the run summary; a failure only costs the comparison, never the run."""
+    found = [
+        {"type": i.type, "payload": i.stored_payload(), "chart_spec": i.chart_spec}
+        for i in collected
+    ]
+    try:
+        return run_summary.build(context, version, found)
+    except Exception:
+        logger.exception("run_summary_failed", version_id=str(version.id))
+        return None
 
 
 def _store_assignments(

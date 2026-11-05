@@ -8,6 +8,7 @@ import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { useAuth } from "@/lib/auth/auth-provider";
 
 import { AiModelCard, AiUsageCard } from "./ai-usage-card";
+import { AlertSettingsCard } from "./alert-settings-card";
 import { PrivacyCard } from "./privacy-card";
 import { Row } from "./settings-card";
 
@@ -52,6 +53,7 @@ export function SettingsView() {
         <AiUsageCard />
         <AiModelCard />
         <PrivacyCard />
+        <AlertSettingsCard />
       </div>
     </>
   );

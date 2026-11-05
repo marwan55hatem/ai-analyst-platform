@@ -36,6 +36,17 @@ class StorageBackend(Protocol):
     def delete_prefix(self, prefix: str) -> None:
         """Delete everything under `prefix`."""
 
+    def save_bytes(self, key: str, data: bytes) -> int:
+        """Store `data` under `key` atomically; return bytes written."""
+
+    def delete(self, key: str) -> None:
+        """Delete one object; a missing object is ignored."""
+
+
+def report_key(tenant_id: uuid.UUID) -> str:
+    """Return a new, unguessable storage key for a report PDF: <tenant>/reports/<hex>.pdf."""
+    return f"{tenant_id}/reports/{uuid.uuid4().hex}.pdf"
+
 
 class LocalStorage:
     """Store files under a root directory (STORAGE_DIR)."""
@@ -91,6 +102,24 @@ class LocalStorage:
         """Remove a directory tree; missing prefixes are ignored."""
         path = self._resolve(prefix)
         shutil.rmtree(path, ignore_errors=True)
+
+    def save_bytes(self, key: str, data: bytes) -> int:
+        """Write `data` to a .part file and rename it into place."""
+        target = self.new_path(key)
+        partial = target.with_name(target.name + ".part")
+        try:
+            partial.write_bytes(data)
+            os.replace(partial, target)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                partial.unlink()
+            raise
+        return len(data)
+
+    def delete(self, key: str) -> None:
+        """Remove one file; a missing file is ignored."""
+        with contextlib.suppress(FileNotFoundError):
+            self._resolve(key).unlink()
 
 
 def get_storage() -> StorageBackend:

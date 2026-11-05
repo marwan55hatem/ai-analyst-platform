@@ -28,6 +28,8 @@ export function useFormat() {
     const twoDecimals = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const percent = new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 1 });
     const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" });
+    const localDay = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+    const localTime = new Intl.DateTimeFormat(locale, { timeStyle: "short" });
     const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
     const compact = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
     const money = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
@@ -47,6 +49,8 @@ export function useFormat() {
           ? `${decimal.format(n / (1024 * 1024))} MB`
           : `${decimal.format(Math.max(n, 1) / 1024)} KB`,
       dateTime: (iso: string) => dateTime.format(new Date(iso)),
+      /** Date and time apart, so each can be bidi-isolated inside Arabic text. */
+      dateTimeParts: (iso: string): [string, string] => [localDay.format(new Date(iso)), localTime.format(new Date(iso))],
       /** Short number for axes and tiles: 1.2M, 45K. */
       compact: (n: number) => compact.format(n),
       /** Money without a symbol (the file does not say which currency); cents below 100. */

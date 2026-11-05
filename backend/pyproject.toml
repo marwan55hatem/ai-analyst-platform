@@ -31,6 +31,8 @@ dependencies = [
     "scikit-learn>=1.9.1",
     "shap>=0.54.1",
     "httpx>=0.28",
+    "weasyprint>=70,<71",
+    "jinja2>=3.1",
 ]
 
 [dependency-groups]
@@ -43,6 +45,8 @@ dev = [
     "pyyaml",
     "types-pyyaml",
     "pytest-xdist>=3.8.0",
+    "pypdf>=6.21.4",
+    "pypdfium2>=5.14.0",
 ]
 
 [build-system]
@@ -76,7 +80,7 @@ files = ["app"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*", "sklearn.*", "joblib.*", "shap.*"]
+module = ["celery.*", "pandas.*", "pyarrow.*", "duckdb.*", "openpyxl.*", "sqlglot.*", "yaml.*", "statsmodels.*", "scipy.*", "statsforecast.*", "lightgbm.*", "mlflow.*", "numpy.*", "psutil.*", "numba.*", "sklearn.*", "joblib.*", "shap.*", "weasyprint.*", "pypdf.*", "pypdfium2.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

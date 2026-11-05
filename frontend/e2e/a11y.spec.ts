@@ -52,6 +52,7 @@ test("every page passes axe in both languages, themes and widths", async ({ brow
     "/insights/what-if",
     "/chat",
     "/reports",
+    "/reports?tab=alerts",
     "/settings",
   ];
 
