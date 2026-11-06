@@ -59,3 +59,41 @@ def apply_cleaning(tenant_id: str, version_id: str, selection: dict[str, str | N
     from app.services.cleaning import run_cleaning
 
     run_cleaning(uuid.UUID(tenant_id), uuid.UUID(version_id), selection)
+
+
+@celery_app.task(name="app.workers.tasks.check_data_freshness")
+def check_data_freshness() -> int:
+    """Raise "no new data" alerts for companies that turned the daily check on (beat)."""
+    from app.db.session import get_sessionmaker
+    from app.services.alerts import check_freshness
+
+    with get_sessionmaker()() as db:
+        return check_freshness(db)
+
+
+@celery_app.task(name="app.workers.tasks.generate_report")
+def generate_report_task(tenant_id: str, report_id: str) -> None:
+    """Build the PDF of a queued report from stored analysis results."""
+    from app.services.reports import generate_report
+
+    generate_report(uuid.UUID(tenant_id), uuid.UUID(report_id))
+
+
+@celery_app.task(name="app.workers.tasks.fail_stuck_reports")
+def fail_stuck_reports() -> int:
+    """Fail reports stuck in queued or running (runs from Celery beat)."""
+    from app.db.session import get_sessionmaker
+    from app.services.reports import fail_stuck_reports as sweep
+
+    with get_sessionmaker()() as db:
+        return sweep(db)
+
+
+@celery_app.task(name="app.workers.tasks.purge_expired_reports")
+def purge_expired_reports() -> int:
+    """Delete reports past REPORT_RETENTION_DAYS and their files (runs from Celery beat)."""
+    from app.db.session import get_sessionmaker
+    from app.services.reports import purge_expired_reports as purge
+
+    with get_sessionmaker()() as db:
+        return purge(db)

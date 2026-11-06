@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+{#- Every dataset-derived string reaches this template as data and is HTML-escaped (autoescape). -#}
+{%- set m = facts.meta -%}
+<html lang="{{ m.locale }}" dir="{{ dir }}">
+<head>
+<meta charset="utf-8">
+<title>{{ t('title') }} - {{ m.dataset_name }}</title>
+<meta name="author" content="AI Business Analyst Platform">
+<meta name="generator" content="AI Business Analyst Platform reports">
+<meta name="description" content="{{ t('title') }}: {{ m.dataset_name }}, {{ t('version') }} {{ m.version }}">
+<meta name="dcterms.created" content="{{ m.generated_at }}">
+<style>
+{% for font in fonts %}
+@font-face { font-family: "{{ font.family }}"; src: url("{{ font.uri }}"); font-weight: {{ font.weight }}; }
+{% endfor %}
+@page {
+  size: A4;
+  margin: 22mm 16mm 20mm 16mm;
+  @top-{{ start }} { content: string(dataset); font: 8pt {{ family }}; color: #4b5a58; }
+  @top-{{ end }} { content: string(runinfo); font: 8pt {{ family }}; color: #4b5a58; }
+  @bottom-{{ end }} {
+    content: "{{ css('page') }} " counter(page) " {{ css('of') }} " counter(pages);
+    font: 8pt {{ family }}; color: #4b5a58;
+  }
+  @bottom-{{ start }} { content: string(dataset); font: 8pt {{ family }}; color: #4b5a58; }
+}
+@page :first {
+  @top-{{ start }} { content: none; }
+  @top-{{ end }} { content: none; }
+}
+html { font-family: {{ family }}; font-size: 9.5pt; color: #16201f; line-height: 1.45; }
+body { margin: 0; }
+.running-dataset { string-set: dataset content(); height: 0; overflow: hidden; margin: 0; }
+.running-info { string-set: runinfo content(); height: 0; overflow: hidden; margin: 0; }
+h1 { font-size: 22pt; font-weight: 600; color: #0b5c63; margin: 30mm 0 4mm; }
+h2 { font-size: 14pt; font-weight: 600; color: #0b5c63; margin: 8mm 0 2mm;
+     border-bottom: 1px solid #d3dcda; padding-bottom: 1mm; break-after: avoid; }
+h3 { font-size: 11pt; font-weight: 600; margin: 5mm 0 1.5mm; break-after: avoid; }
+p { margin: 0 0 2mm; }
+.lead { font-size: 13pt; margin-bottom: 8mm; }
+.muted { color: #4b5a58; }
+.small { font-size: 8pt; }
+.cover dl { display: block; margin: 0 0 8mm; }
+.cover dt { font-weight: 600; float: {{ start }}; width: 45mm; clear: both; }
+.cover dd { margin: 0 0 1.5mm 0; margin-{{ start }}: 47mm; }
+.note { background: #e0eef0; padding: 3mm 4mm; border-{{ start }}: 3px solid #0b5c63; margin: 3mm 0; }
+.warn { background: #fbeedb; border-{{ start }}-color: #8f4e00; }
+.unavailable { background: #ebf0ee; padding: 3mm 4mm; border-{{ start }}: 3px solid #7c8c89; }
+.unavailable strong { display: block; }
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; font-size: 8.5pt; }
+thead { display: table-header-group; }
+th { text-align: {{ start }}; font-weight: 600; border-bottom: 1px solid #7c8c89; padding: 1mm 1.5mm; }
+td { border-bottom: 1px solid #e3eae8; padding: 1mm 1.5mm; vertical-align: top; }
+td.num, th.num { text-align: {{ end }}; }
+tr { break-inside: avoid; }
+.ltr { direction: ltr; unicode-bidi: embed; }
+.engine { direction: ltr; unicode-bidi: embed; }
+.engine-block { display: block; direction: ltr; unicode-bidi: embed; text-align: left; }
+tbody th { border-bottom: 1px solid #e3eae8; text-align: {{ start }}; }
+ol.findings { list-style: none; padding: 0; margin: 0; }
+ol.findings li { margin-bottom: 3mm; break-inside: avoid; }
+.finding-title { font-weight: 600; }
+.badges { font-size: 8pt; color: #4b5a58; }
+.badge { border: 1px solid #d3dcda; border-radius: 2mm; padding: 0.2mm 1.5mm; margin-{{ end }}: 1mm; }
+.badge-low { border-color: #8f4e00; color: #8f4e00; }
+figure { margin: 2mm 0 1mm; break-inside: avoid; }
+figcaption { font-size: 8pt; color: #4b5a58; }
+svg.chart { display: block; width: 100%; }
+.legend span { margin-{{ end }}: 4mm; }
+.swatch { display: inline-block; width: 4mm; height: 2.5mm; vertical-align: middle; margin-{{ end }}: 1mm; }
+section { break-inside: auto; }
+.appendix-item { break-inside: avoid; margin-bottom: 3mm; }
+pre.sql { direction: ltr; text-align: left; white-space: pre-wrap; word-break: break-all;
+          font-family: "IBM Plex Sans"; font-size: 7.5pt; background: #f5f7f6;
+          border: 1px solid #e3eae8; padding: 2mm; margin: 1mm 0 0; }
+.page-break { break-before: page; }
+</style>
+</head>
+<body>
+<p class="running-dataset" aria-hidden="true">{{ m.dataset_name }} · {{ t('version') }} {{ iso(m.version | string) }}</p>
+<p class="running-info" aria-hidden="true">{{ t('run_date') }} {{ iso(m.run_date) }}</p>
+
+<section class="cover">
+  <h1>{{ t('title') }}</h1>
+  <p class="lead">{{ m.dataset_name }}</p>
+  <dl>
+    <dt>{{ t('version') }}</dt><dd>{{ n(m.version) }}</dd>
+    <dt>{{ t('period') }}</dt><dd>{% if m.period_start %}{{ d(m.period_start) }} – {{ d(m.period_end) }}{% else %}{{ t('not_stated') }}{% endif %}</dd>
+    <dt>{{ t('rows') }}</dt><dd>{{ n(m.rows) }}</dd>
+    <dt>{{ t('quality') }}</dt><dd>{% if m.quality_score is not none %}{{ n(m.quality_score) }} / 100{% else %}{{ t('not_stated') }}{% endif %}</dd>
+    <dt>{{ t('currency') }}</dt><dd>{{ m.currency or t('not_stated') }}</dd>
+    <dt>{{ t('run_date') }}</dt><dd>{{ d(m.run_date) }}</dd>
+    <dt>{{ t('generated') }}</dt><dd>{{ d(m.generated_at[:10]) }}</dd>
+  </dl>
+  <p class="note">{{ t('cover_note') }}</p>
+  {% if m.locale == 'ar' %}<p class="muted small">{{ t('engine_note') }}</p>{% endif %}
+</section>
+
+<section>
+  <h2>{{ t('summary') }}</h2>
+  <p class="muted">{{ t('summary_intro') }}</p>
+  {% if facts.findings %}
+  <ol class="findings">
+    {% for f in facts.findings %}
+    <li>
+      <span class="finding-title engine-block" lang="en">{{ loop.index }}. {{ f.title }}</span>
+      <span class="engine-block" lang="en">{{ f.summary }}</span>
+      <span class="badges">
+        <span class="badge{% if f.confidence == 'low' %} badge-low{% endif %}">{{ t('confidence') }}: {{ t('conf_' ~ f.confidence) }}</span>
+        <span class="badge">{{ t('sample') }}: {{ n(f.sample_size) }}</span>
+        <span class="badge">{{ t('impact') }}: {{ n(f.impact_score, 0) }}</span>
+      </span>
+      {% if f.confidence == 'low' %}<br><span class="small" style="color:#8f4e00">{{ t('low_flag') }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>{{ t('no_findings') }}</p>
+  {% endif %}
+</section>
+
+{% macro unavailable(section) -%}
+<div class="unavailable">
+  <strong>{% if section.kind == 'empty' %}{{ t('nothing_found') }}{% else %}{{ t('not_available') }}{% endif %}</strong>
+  <span class="engine" lang="en">{{ section.reason }}</span>
+</div>
+{%- endmacro %}
+
+{% macro conf(section) -%}
+<p class="badges"><span class="badge{% if section.confidence == 'low' %} badge-low{% endif %}">{{ t('confidence') }}: {{ t('conf_' ~ section.confidence) }}</span>
+<span class="badge">{{ t('sample') }}: {{ n(section.sample_size) }}</span></p>
+{% if section.confidence == 'low' %}<p class="small" style="color:#8f4e00">{{ t('low_flag') }}</p>{% endif %}
+{%- endmacro %}
+
+<section>
+  <h2>{{ t('kpis') }}</h2>
+  {% if facts.kpis.kind is defined %}{{ unavailable(facts.kpis) }}{% else %}
+  {% set k = facts.kpis %}
+  <p class="muted">{{ t('kpis_intro', start=k.range.start, end=k.range.end, prev_start=k.previous_range.start, prev_end=k.previous_range.end) }}</p>
+  {{ conf(k) }}
+  <table>
+    <thead><tr><th scope="col">{{ t('measure') }}</th><th scope="col" class="num">{{ t('value') }}</th><th scope="col" class="num">{{ t('previous') }}</th><th scope="col" class="num">{{ t('change') }}</th></tr></thead>
+    <tbody>
+    {% for row in k.rows %}
+      <tr>
+        <th scope="row">{{ t('kpi_' ~ row.key) }}</th>
+        {% if row.value is none %}
+        <td colspan="3"><span class="engine" lang="en">{{ row.reason or t('not_available') }}</span></td>
+        {% else %}
+        <td class="num">{{ kv(row.value, row.unit) }}</td>
+        <td class="num">{% if row.previous_value is not none %}{{ kv(row.previous_value, row.unit) }}{% else %}–{% endif %}</td>
+        <td class="num">{% if row.change is not none %}{{ ch(row.change, row.change_unit) }}{% else %}<span class="engine small" lang="en">{{ row.reason or '–' }}</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('trend') }}</h2>
+  {% if facts.trend.kind is defined %}{{ unavailable(facts.trend) }}{% else %}
+  {% set tr = facts.trend %}
+  <p class="muted">{{ t('trend_intro', unit=t('unit_' ~ tr.frequency)) }}{% if tr.model %} {{ t('model') }}: <span class="ltr">{{ tr.model }}</span>.{% endif %}</p>
+  {% if tr.no_better_than_baseline %}<p class="note warn">{{ t('trend_baseline') }}</p>{% endif %}
+  {{ conf(tr) }}
+  <figure>
+    {{ charts.trend | safe }}
+    <figcaption class="legend">
+      <span><span class="swatch" style="background:#0b5c63"></span>{{ t('legend_actual') }}</span>
+      <span><span class="swatch" style="background:#8a5a00"></span>{{ t('legend_forecast') }}</span>
+      <span><span class="swatch" style="background:rgba(184,110,0,0.55)"></span>{{ t('legend_80') }}</span>
+      <span><span class="swatch" style="background:rgba(184,110,0,0.22)"></span>{{ t('legend_95') }}</span>
+    </figcaption>
+  </figure>
+  <table>
+    <thead><tr><th scope="col">{{ t('period_col') }}</th><th scope="col" class="num">{{ t('actual') }}</th><th scope="col" class="num">{{ t('forecast') }}</th><th scope="col" class="num">{{ t('range80') }}</th><th scope="col" class="num">{{ t('range95') }}</th></tr></thead>
+    <tbody>
+    {% for h in tr.history[-12:] %}
+      <tr><td>{{ p(h.period, tr.frequency) }}</td><td class="num">{{ money(h.value) }}</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>
+    {% endfor %}
+    {% for f in tr.forecast %}
+      <tr><td>{{ p(f.period, tr.frequency) }}</td><td class="num">–</td><td class="num">{{ money(f.point) }}</td><td class="num">{{ rng(f.lo80, f.hi80) }}</td><td class="num">{{ rng(f.lo95, f.hi95) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('contributors') }}</h2>
+  {% if facts.contributors.kind is defined %}{{ unavailable(facts.contributors) }}{% else %}
+  <p class="muted">{{ t('contributors_intro') }}</p>
+  {% for table in facts.contributors %}
+  <h3>{{ t('dim_' ~ table.dimension) }}</h3>
+  {{ conf(table) }}
+  <p class="small muted">{{ t('abc_counts', a=table.abc_counts.get('A', 0), b=table.abc_counts.get('B', 0), c=table.abc_counts.get('C', 0), n=table.item_count) }}</p>
+  <figure>{{ charts.contributors[loop.index0] | safe }}</figure>
+  <table>
+    <thead><tr><th scope="col" class="num">{{ t('rank') }}</th><th scope="col">{{ t('item') }}</th><th scope="col" class="num">{{ t('revenue') }}</th><th scope="col" class="num">{{ t('share') }}</th><th scope="col" class="num">{{ t('cumulative') }}</th><th scope="col">{{ t('abc') }}</th></tr></thead>
+    <tbody>
+    {% for item in table.items %}
+      <tr><td class="num">{{ n(loop.index) }}</td><td>{{ item.item }}</td><td class="num">{{ money(item.revenue) }}</td><td class="num">{{ pct(item.share_pct) }}</td><td class="num">{{ pct(item.cumulative_pct) }}</td><td>{{ item.abc }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+  {% endif %}
+  {% if facts.dead_stock %}
+  {% set ds = facts.dead_stock %}
+  <h3>{{ t('dead_stock') }}</h3>
+  <p>{{ t('dead_stock_text', count=ds.count, total=ds.product_count or '–', days=ds.days or '–', as_of=ds.as_of or '–') }}</p>
+  {% if ds.names %}<p>{{ ds.names | join(', ') }}{% if ds.count > ds.names | length %} {{ t('dead_stock_more', n=ds.count - ds.names | length) }}{% endif %}</p>{% endif %}
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('unusual') }}</h2>
+  {% if facts.unusual.kind is defined %}{{ unavailable(facts.unusual) }}{% else %}
+  {% set u = facts.unusual %}
+  {% if u.days %}
+  <p class="muted">{{ t('unusual_intro', total=u.total, shown=u.days | length) }}</p>
+  {{ conf(u) }}
+  <table>
+    <thead><tr><th scope="col">{{ t('start') }}</th><th scope="col">{{ t('end') }}</th><th scope="col">{{ t('kind') }}</th><th scope="col" class="num">{{ t('actual') }}</th><th scope="col" class="num">{{ t('usual') }}</th><th scope="col">{{ t('likely_items') }}</th></tr></thead>
+    <tbody>
+    {% for day in u.days %}
+      <tr><td>{{ d(day.start) }}</td><td>{{ d(day.end) }}</td><td>{{ t(day.kind) }}</td><td class="num">{{ money(day.actual) }}</td><td class="num">{{ money(day.expected) }}</td><td>{{ day.contributors | join(', ') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="unavailable"><strong>{{ t('nothing_found') }}</strong></div>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('segments') }}</h2>
+  {% if facts.segments.kind is defined %}{{ unavailable(facts.segments) }}{% else %}
+  {% set s = facts.segments %}
+  <p class="muted">{{ t('segments_intro', customers=nfmt(s.customers)) }}</p>
+  {{ conf(s) }}
+  <figure>{{ charts.segments | safe }}</figure>
+  <table>
+    <thead><tr><th scope="col" class="num">{{ t('rank') }}</th><th scope="col">{{ t('segment') }}</th><th scope="col" class="num">{{ t('customers') }}</th><th scope="col" class="num">{{ t('revenue_share') }}</th><th scope="col">{{ t('action') }}</th></tr></thead>
+    <tbody>
+    {% for seg in s.segments %}
+      <tr><td class="num">{{ n(loop.index) }}</td><td class="engine" lang="en">{{ seg.segment }}</td><td class="num">{{ n(seg.customers) }}</td><td class="num">{{ pct(seg.revenue_share_pct) }}</td><td class="engine" lang="en">{{ seg.action or '–' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('churn') }}</h2>
+  {% if facts.churn.kind is defined %}{{ unavailable(facts.churn) }}{% else %}
+  {% set c = facts.churn %}
+  <p class="muted">{{ t('churn_intro', scored=nfmt(c.scored_customers), window=c.window_days or '–') }}</p>
+  {% if c.basis == 'rank' %}<p class="note warn">{{ t('churn_rank_note') }}</p>{% endif %}
+  {{ conf(c) }}
+  <table>
+    <thead><tr><th scope="col">{{ t('band') }}</th><th scope="col" class="num">{{ t('customers') }}</th><th scope="col" class="num">{{ t('yearly_spend') }}</th><th scope="col" class="num">{{ t('expected_loss') }}</th></tr></thead>
+    <tbody>
+      {% if c.basis != 'rank' %}
+      <tr><th scope="row">{{ t('band_high') }}</th><td class="num">{{ n(c.high.customers) }}</td><td class="num">{{ money(c.high.yearly_spend) }}</td><td class="num">{{ money(c.high.expected_loss) }}</td></tr>
+      <tr><th scope="row">{{ t('band_medium') }}</th><td class="num">{{ n(c.medium) }}</td><td class="num">–</td><td class="num">–</td></tr>
+      <tr><th scope="row">{{ t('band_low') }}</th><td class="num">{{ n(c.low) }}</td><td class="num">–</td><td class="num">–</td></tr>
+      {% endif %}
+      <tr><th scope="row">{{ t('band_top') }}</th><td class="num">{{ n(c.top_10pct.customers) }}</td><td class="num">{{ money(c.top_10pct.yearly_spend) }}</td><td class="num">{{ money(c.top_10pct.expected_loss) }}</td></tr>
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section>
+  <h2>{{ t('caveats') }}</h2>
+  <p>{{ t('assumptions') }}</p>
+  <h3>{{ t('quality_issues') }}</h3>
+  {% if facts.quality_issues %}<ul>{% for issue in facts.quality_issues %}<li class="engine" lang="en">{{ issue }}</li>{% endfor %}</ul>{% else %}<p>{{ t('none') }}</p>{% endif %}
+  <h3>{{ t('warnings') }}</h3>
+  {% if facts.caveats %}<ul>{% for c in facts.caveats %}<li class="engine" lang="en">{{ c }}</li>{% endfor %}</ul>{% else %}<p>{{ t('none') }}</p>{% endif %}
+  <h3>{{ t('modules') }}</h3>
+  <table>
+    <thead><tr><th scope="col">{{ t('module') }}</th><th scope="col">{{ t('status') }}</th><th scope="col">{{ t('reason') }}</th></tr></thead>
+    <tbody>
+    {% for mod in facts.modules %}
+      <tr><td>{{ t('module_' ~ mod.module) }}</td><td>{{ t('status_' ~ mod.status) }}</td><td class="engine" lang="en">{{ mod.reason or '' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="page-break">
+  <h2>{{ t('appendix') }}</h2>
+  <p class="muted">{{ t('appendix_intro') }}</p>
+  {% for e in facts.appendix %}
+  <div class="appendix-item">
+    <p><strong>{{ t('finding') }}:</strong> <span class="engine" lang="en">{{ e.finding }}</span><br>
+    <strong>{{ t('purpose') }}:</strong> <span class="engine" lang="en">{{ e.purpose }}</span> · <strong>{{ t('row_count') }}:</strong> {{ n(e.row_count) }}</p>
+    <pre class="sql" lang="en">{{ e.sql }}</pre>
+  </div>
+  {% endfor %}
+</section>
+</body>
+</html>

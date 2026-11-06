@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from tests.ground_truth_fixtures import analyze, full, of_type
 from tests.helpers import API, register
+from tests.report_fixtures import pdf_text
 
 SAMPLES = Path(__file__).resolve().parents[2] / "evaluation" / "datasets" / "samples"
 DATA = SAMPLES / "sales_large_clean.csv"
@@ -96,3 +97,33 @@ def test_the_large_sample_matches_its_answer_key(client: TestClient) -> None:
     assert payload["model"] != "SeasonalNaive"
     history = {p["period"]: p["value"] for p in total["chart_spec"]["history"]}
     assert payload["point"][0] > history["2026-09-01"]  # October is seasonally stronger
+
+    # The report prints the same figures: answer key, dashboard cards and stored results.
+    started = time.perf_counter()
+    report = client.post(
+        f"{API}/datasets/{dataset_id}/reports", headers=owner.headers, json={"locale": "en"}
+    ).json()
+    seconds = time.perf_counter() - started
+    assert report["status"] == "completed", report
+    pdf = client.get(f"{API}/reports/{report['id']}/download", headers=owner.headers).content
+    print(f"report: {seconds:.1f} s, {len(pdf) / 1024:.0f} KB")
+    text = "".join(pdf_text(pdf).split())
+    tops = {
+        "product": facts["top_product_by_revenue"],
+        "category": facts["top_category_by_revenue"],
+        "region": facts["top_region_by_revenue"],
+    }
+    for name in tops.values():
+        assert "".join(name.split()) in text
+    end = date.fromisoformat(facts["date_range"][1])
+    cards = client.get(
+        url,
+        params={
+            "start": date.fromordinal(end.toordinal() - 89).isoformat(),
+            "end": end.isoformat(),
+        },
+        headers=owner.headers,
+    ).json()
+    net = _kpi(cards, "net_revenue")
+    assert f"{net:,.0f}" in text and f"{_kpi(cards, 'orders'):,.0f}" in text
+    assert f"{facts['rows']:,}" in text

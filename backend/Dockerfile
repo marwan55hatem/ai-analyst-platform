@@ -10,8 +10,10 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PATH="/app/.venv/bin:$PATH" PYTHONPATH=/app
 # numba (statsforecast) needs a writable cache; OMP_NUM_THREADS keeps LightGBM to one core
 ENV NUMBA_CACHE_DIR=/tmp/numba_cache OMP_NUM_THREADS=1
-# libgomp1 is the OpenMP runtime LightGBM needs on the slim image
+# libgomp1 is the OpenMP runtime LightGBM needs on the slim image; Pango (with HarfBuzz) lays out
+# and shapes report text for WeasyPrint, Arabic included (the fonts are bundled in app/reports)
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 app \
     && mkdir -p /tmp/numba_cache && chown app:app /tmp/numba_cache

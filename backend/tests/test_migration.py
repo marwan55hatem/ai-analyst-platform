@@ -42,6 +42,9 @@ def test_migration_creates_schema_and_is_safe_to_run_twice(empty_url: URL) -> No
     } <= user_columns
     message_columns = {c["name"] for c in inspect(engine).get_columns("messages")}
     assert "prompt_version" in message_columns
+    assert {"reports", "alerts", "alert_settings"} <= set(inspect(engine).get_table_names())
+    run_columns = {c["name"] for c in inspect(engine).get_columns("analysis_runs")}
+    assert "summary" in run_columns
     engine.dispose()
     command.downgrade(cfg, "base")
     engine = create_engine(empty_url)

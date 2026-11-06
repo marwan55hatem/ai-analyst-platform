@@ -137,7 +137,13 @@
     "boundaryBody": "This part of the page didn't load. Try again, or go back to your datasets.",
     "notFoundTitle": "Page not found",
     "notFoundBody": "The address may be mistyped, or the page has moved.",
-    "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}."
+    "rateLimitedMinutes": "Too many attempts. Try again in {minutes, plural, one {# minute} other {# minutes}}.",
+    "report_busy": "A report is already being generated. Try again when it is ready.",
+    "report_limit": "Your company has reached its report limit. Delete old reports first.",
+    "report_no_analysis": "This dataset has no finished analysis yet.",
+    "report_not_ready": "The report is not ready yet.",
+    "report_missing": "The report file is missing. Generate it again.",
+    "report_running": "The report is still being generated."
   },
   "status": {
     "processing": "Processing",
@@ -363,22 +369,6 @@
       "drivers": "Revenue drivers"
     },
     "runAgain": "Run analysis again"
-  },
-  "placeholder": {
-    "dashboard": {
-      "title": "Dashboard",
-      "body": "Your key figures, trends and forecast will appear here once a dataset has been analysed."
-    },
-    "insights": {
-      "title": "Insights",
-      "body": "Findings from your analyses, each with its evidence and confidence, will be listed here."
-    },
-    "reports": {
-      "title": "Reports",
-      "body": "Scheduled reports and alerts will be managed here."
-    },
-    "cta": "Go to datasets",
-    "notReady": "Not ready yet"
   },
   "settings": {
     "title": "Settings",
@@ -976,5 +966,166 @@
     },
     "table": "Table",
     "thread": "This conversation"
+  },
+  "reports": {
+    "title": "Reports",
+    "description": "PDF reports built from your stored analysis results, and alerts when a new analysis differs from the previous one.",
+    "tabs": {
+      "reports": "Reports",
+      "alerts": "Alerts"
+    },
+    "generate": "Generate report",
+    "generateTitle": "Generate a report",
+    "generateBody": "A PDF built only from the stored results of the latest finished analysis of this dataset version. No AI model writes or computes anything in it.",
+    "includesTitle": "What the report includes",
+    "includes": {
+      "summary": "Executive summary, each finding with its confidence and sample size",
+      "kpis": "Key figures against the previous period, as on the dashboard",
+      "trend": "Trend and forecast with 80% and 95% ranges",
+      "contributors": "Top products, categories and regions, and products without recent sales",
+      "unusual": "Unusual days",
+      "customers": "Customer segments and churn risk (totals only; no customer is named)",
+      "caveats": "Assumptions, data quality, and the evidence behind each finding"
+    },
+    "excludes": "What-if scenarios are not included.",
+    "dataset": "Dataset",
+    "version": "Version {n}",
+    "language": "Language",
+    "languages": {
+      "en": "English",
+      "ar": "Arabic"
+    },
+    "cancel": "Cancel",
+    "submit": "Generate",
+    "submitting": "Queuing…",
+    "queued": "Report queued. It appears in the list when it is ready.",
+    "columns": {
+      "dataset": "Dataset",
+      "version": "Version",
+      "language": "Language",
+      "status": "Status",
+      "size": "Size",
+      "created": "Created",
+      "actions": "Actions"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Generating",
+      "completed": "Ready",
+      "failed": "Failed"
+    },
+    "progress": "Generating, {pct}% done",
+    "download": "Download",
+    "downloadName": "Download the {language} report of {name}, version {version}",
+    "downloaded": "Report downloaded",
+    "delete": "Delete",
+    "deleteName": "Delete the {language} report of {name}, version {version}",
+    "deleteTitle": "Delete this report?",
+    "deleteBody": "The {language} PDF of {name} (version {version}) is deleted for everyone in your company. This cannot be undone.",
+    "deleteConfirm": "Delete report",
+    "deleting": "Deleting…",
+    "deleted": "Report deleted",
+    "empty": {
+      "title": "No reports yet",
+      "body": "Generate a PDF report from the latest analysis of a dataset."
+    },
+    "noData": {
+      "title": "No dataset to report on",
+      "body": "Upload a dataset and let its analysis finish first.",
+      "cta": "Upload a dataset"
+    },
+    "noRun": {
+      "title": "No finished analysis yet",
+      "body": "A report needs a completed analysis of the dataset's current version.",
+      "cta": "Open the dataset"
+    },
+    "runActive": "The analysis of this dataset is still running. You can generate a report when it finishes.",
+    "failedReason": {
+      "no_analysis": "The analysis behind this report is gone. Run the analysis again, then generate a new report.",
+      "too_large": "The report was too large to keep.",
+      "render_failed": "The PDF could not be built. Try generating it again.",
+      "timed_out": "Generating took too long and was stopped. Try again.",
+      "not_started": "The report could not be started. Try again.",
+      "generic": "Something went wrong. Try generating it again."
+    },
+    "retry": "Generate again",
+    "loadFailed": "Reports could not be loaded.",
+    "total": "{count, plural, one {# report} other {# reports}}",
+    "limitNote": "Reports are kept for {days} days."
+  },
+  "alerts": {
+    "bell": "{count, plural, =0 {Alerts, none unread} one {Alerts, # unread} other {Alerts, # unread}}",
+    "announce": "{count, plural, one {# new alert} other {# new alerts}}",
+    "title": "Alerts",
+    "intro": "When an analysis finishes, it is compared with the previous analysis of the same dataset. Alerts state the numbers and the periods compared; they never claim a cause.",
+    "unreadOnly": "Unread only",
+    "markRead": "Mark read",
+    "markReadName": "Mark read: {title}",
+    "markAllRead": "Mark all read",
+    "allRead": "All alerts marked read",
+    "unread": "Unread",
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "critical": "Critical"
+    },
+    "empty": {
+      "title": "No alerts",
+      "body": "Alerts appear after a second analysis of a dataset shows a drop, new unusual days, more churn risk, new products without sales or lower data quality.",
+      "unreadTitle": "No unread alerts"
+    },
+    "open": {
+      "dashboard": "Open dashboard",
+      "churn": "Open churn risk",
+      "insights": "Open insights",
+      "dataset": "Open dataset"
+    },
+    "loadMore": "Load more",
+    "loadFailed": "Alerts could not be loaded.",
+    "settingsLink": "Change thresholds",
+    "metric": {
+      "net_revenue": "Net revenue",
+      "orders": "Orders"
+    },
+    "forecastTitle": "Net revenue in {month} was below the forecast range",
+    "forecastBody": "Net revenue in {month} was {actual}, below the {level}% range of the forecast ({low} to {high}; expected {expected}) made from data up to {through}.",
+    "momTitle": "{metric} in {month} fell {pct} from {previous}",
+    "momBody": "{metric} in {month} was {actual}, {pct} lower than {previous} ({before}). Seasonality is not accounted for.",
+    "dayTitle": "{kind, select, drop {Unusual drop} other {Unusual spike}} in net revenue on {when}",
+    "dayBody": "Net revenue was {actual}, against a usual level of {expected} for that period. The data after {last} is new since the previous analysis.",
+    "churnTitle": "More revenue is at risk from customers likely to stop buying",
+    "churnBody": "{band, select, high {High-risk customers} other {Customers in the top 10% of churn risk}}: {before} in version {va} and {after} in version {vb}. The yearly spend they represent went from {spendBefore} to {spendAfter}.",
+    "deadTitle": "{count, plural, one {# product newly without sales} other {# products newly without sales}}",
+    "deadBody": "No sales in the {days} days up to {asOf}, though they sold in the previous analysis: {names}.",
+    "qualityTitle": "Data quality fell {points} points in version {version}",
+    "qualityBody": "The data-quality score was {before} in version {va} and {after} in version {vb}.",
+    "staleTitle": "No new data for {name} in {days} days",
+    "staleBody": "The latest date in the data is {last}. The alert threshold is {threshold} days.",
+    "range": "{from} to {to}"
+  },
+  "settingsAlerts": {
+    "title": "Alerts",
+    "intro": "Thresholds for the alerts raised after each analysis. A revenue drop is first compared with the previous analysis's forecast range; the percentage below applies when there is no forecast for that month.",
+    "revenue": "Net revenue drop",
+    "orders": "Orders drop",
+    "churn": "Rise in high-risk churn",
+    "quality": "Data-quality drop",
+    "freshness": "Alert when no new data arrives",
+    "freshnessDays": "Days without new data",
+    "percentUnit": "%",
+    "pointsUnit": "points",
+    "daysUnit": "days",
+    "bounds": "From {min} to {max}",
+    "save": "Save thresholds",
+    "saving": "Saving…",
+    "saved": "Alert thresholds saved",
+    "readOnly": "Only owners and admins can change these.",
+    "defaults": "Using the default thresholds.",
+    "on": "On",
+    "off": "Off",
+    "percentValue": "{n}%",
+    "pointsValue": "{n} points",
+    "daysValue": "{n} days",
+    "loadFailed": "Alert thresholds could not be loaded."
   }
 }

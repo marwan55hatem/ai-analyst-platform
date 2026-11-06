@@ -22,6 +22,7 @@ GUARDED_PACKAGES = (
     "app/ml/whatif",
     "app/agent",
     "app/llm",
+    "app/reports",
 )
 # Security-critical files held to a stricter bar than the package minimum.
 GUARDED_FILES = {
@@ -35,6 +36,10 @@ GUARDED_FILES = {
     "app/ml/modules/churn.py": 85.0,
     "app/ml/modules/drivers.py": 85.0,
     "app/services/whatif.py": 85.0,
+    # Step 10: alerts, the run summary they compare and the report service
+    "app/services/alerts.py": 90.0,
+    "app/services/run_summary.py": 85.0,
+    "app/services/reports.py": 85.0,
 }
 
 

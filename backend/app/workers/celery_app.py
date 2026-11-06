@@ -24,6 +24,18 @@ celery_app.conf.update(
             "task": "app.workers.tasks.fail_stuck_ingestions",
             "schedule": 600.0,  # every 10 minutes
         },
+        "fail-stuck-reports": {
+            "task": "app.workers.tasks.fail_stuck_reports",
+            "schedule": 600.0,
+        },
+        "purge-expired-reports": {
+            "task": "app.workers.tasks.purge_expired_reports",
+            "schedule": 86_400.0,  # daily
+        },
+        "check-data-freshness": {
+            "task": "app.workers.tasks.check_data_freshness",
+            "schedule": 86_400.0,  # daily; only companies that turned the check on
+        },
     },
 )
 

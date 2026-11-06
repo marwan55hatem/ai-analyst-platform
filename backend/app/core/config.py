@@ -111,6 +111,16 @@ class Settings(BaseSettings):
     whatif_max_concurrent: int = 2
     timeseries_max_points: int = 1_500
     export_max_rows: int = 50_000
+    report_max_per_tenant: int = Field(default=50, ge=1, le=1_000)
+    report_retention_days: int = Field(default=90, ge=1, le=3_650)
+    report_max_mb: float = Field(default=20.0, gt=0, le=200)
+    report_stuck_minutes: int = Field(default=30, ge=1)
+    report_rate_limit_per_hour: int = Field(default=30, ge=1)
+    alert_revenue_drop_pct: float = Field(default=15.0, ge=1, le=90)
+    alert_orders_drop_pct: float = Field(default=15.0, ge=1, le=90)
+    alert_churn_increase_pct: float = Field(default=20.0, ge=1, le=500)
+    alert_quality_drop_points: int = Field(default=5, ge=1, le=50)
+    alert_freshness_days: int = Field(default=14, ge=1, le=365)
     pseudonym_secret: str = ""
     cors_origins: str = Field(default="http://localhost:3000")
     email_provider: str = "none"

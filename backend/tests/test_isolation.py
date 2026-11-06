@@ -61,7 +61,24 @@ CHAT_ROUTES = {
     ("DELETE", "/api/v1/conversations/{conversation_id}"),
     ("GET", "/api/v1/conversations/{conversation_id}/messages"),
 }
-RESOURCE_ROUTES = TEAM_ROUTES | DATASET_ROUTES | ANALYSIS_ROUTES | FORECAST_ROUTES | CHAT_ROUTES
+ALERT_ROUTES = {
+    ("POST", "/api/v1/alerts/{alert_id}/read"),
+}
+REPORT_ROUTES = {
+    ("POST", "/api/v1/datasets/{dataset_id}/reports"),
+    ("GET", "/api/v1/reports/{report_id}"),
+    ("GET", "/api/v1/reports/{report_id}/download"),
+    ("DELETE", "/api/v1/reports/{report_id}"),
+}
+RESOURCE_ROUTES = (
+    TEAM_ROUTES
+    | DATASET_ROUTES
+    | ANALYSIS_ROUTES
+    | FORECAST_ROUTES
+    | CHAT_ROUTES
+    | ALERT_ROUTES
+    | REPORT_ROUTES
+)
 # Routes that work without a token; every other route must answer 401 anonymously.
 PUBLIC_ROUTES = {
     ("GET", "/api/v1/health"),
@@ -79,6 +96,8 @@ def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -
     if method == "POST" and path.endswith("/what-if"):
         body = {"scenarios": [{"lever": "volume", "change_pct": 5}]}
         return client.request(method, path, headers=headers, json=body).status_code
+    if method == "POST" and path.endswith("/reports"):
+        return client.request(method, path, headers=headers, json={"locale": "en"}).status_code
     if method == "POST" and path.endswith("/forecast"):
         return client.request(method, path, headers=headers, json={}).status_code
     if path.endswith("/cleaning-plan/apply"):
@@ -233,6 +252,78 @@ def test_tenant_b_gets_404_for_every_tenant_a_chat_route(client: TestClient) -> 
     for method, template in sorted(CHAT_ROUTES, key=lambda r: r[0] == "DELETE"):
         path = template.replace("{conversation_id}", conversation_id)
         assert _call(client, method, path, owner_a.headers) in {200, 204}, (method, path)
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_alert_route(client: TestClient, db: Session) -> None:
+    import uuid
+
+    from app.db.repository import AlertRepository
+
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    made = upload_ready(client, owner_a, sample("retail_clean.csv"), "a.csv")
+    AlertRepository(db, uuid.UUID(owner_a.tenant_id)).insert_if_new(
+        dataset_id=uuid.UUID(made["id"]),
+        run_id=None,
+        rule="quality_down",
+        severity="warning",
+        title="A only",
+        body="A only",
+        payload={},
+        dedupe_key="a-only",
+    )
+    db.commit()
+    alert_id = client.get(f"{API}/alerts", headers=owner_a.headers).json()["items"][0]["id"]
+    for method, template in sorted(ALERT_ROUTES):
+        path = template.replace("{alert_id}", alert_id)
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+    for attacker in (owner_b, admin_b):
+        assert client.get(f"{API}/alerts", headers=attacker.headers).json()["total"] == 0
+        assert client.get(f"{API}/alerts/unread-count", headers=attacker.headers).json() == {
+            "count": 0
+        }
+        assert client.post(f"{API}/alerts/read-all", headers=attacker.headers).json() == {
+            "updated": 0
+        }
+    body = {
+        "revenue_drop_pct": 40,
+        "orders_drop_pct": 40,
+        "churn_increase_pct": 40,
+        "quality_drop_points": 40,
+        "freshness_enabled": True,
+        "freshness_days": 40,
+    }
+    assert (
+        client.put(f"{API}/alert-settings", headers=owner_a.headers, json=body).status_code == 200
+    )
+    assert client.get(f"{API}/alert-settings", headers=owner_b.headers).json()["is_default"]
+    assert client.get(f"{API}/alerts/unread-count", headers=owner_a.headers).json() == {"count": 1}
+
+
+def test_tenant_b_gets_404_for_every_tenant_a_report_route(client: TestClient) -> None:
+    owner_a = register(client, company="A Corp")
+    owner_b = register(client, company="B Corp")
+    admin_b = add_member(client, owner_b, "admin")
+    made = upload_ready(client, owner_a, sample("retail_clean.csv"), "a.csv")
+    run = client.post(f"{API}/datasets/{made['id']}/analyze", headers=owner_a.headers).json()
+    assert run["status"].startswith("completed"), run
+    created = client.post(
+        f"{API}/datasets/{made['id']}/reports", headers=owner_a.headers, json={"locale": "en"}
+    )
+    assert created.status_code == 202 and created.json()["status"] == "completed", created.text
+    report_id = created.json()["id"]
+
+    for method, template in sorted(REPORT_ROUTES, key=lambda r: r[0] == "DELETE"):
+        path = template.replace("{report_id}", report_id).replace("{dataset_id}", made["id"])
+        for attacker in (owner_b, admin_b):
+            assert _call(client, method, path, attacker.headers) == 404, (method, path)
+    for attacker in (owner_b, admin_b):
+        assert client.get(f"{API}/reports", headers=attacker.headers).json()["total"] == 0
+    # Tenant A still has its report and can download it.
+    own = client.get(f"{API}/reports/{report_id}/download", headers=owner_a.headers)
+    assert own.status_code == 200 and own.content.startswith(b"%PDF-")
 
 
 def test_query_layer_refuses_other_tenants_version(client: TestClient, db: Session) -> None:

@@ -257,3 +257,72 @@ export interface WhatIfResult {
   scenarios: ScenarioResult[];
   note: string;
 }
+
+// ---- reports and alerts (Step 10) ----------------------------------------------------------
+
+export type Report = S["ReportOut"];
+export type ReportPage = S["ReportPage"];
+export type ReportStatus = Report["status"];
+export type ReportLocale = Report["locale"];
+export type Alert = Omit<S["AlertOut"], "payload" | "rule"> & { rule: AlertRule; payload: AlertPayload };
+export type AlertSettings = S["AlertSettingsOut"];
+export type AlertSettingsIn = S["AlertSettingsIn"];
+
+export const ALERT_RULES = [
+  "revenue_drop",
+  "orders_drop",
+  "new_unusual_days",
+  "churn_up",
+  "new_dead_stock",
+  "quality_down",
+  "stale_data",
+] as const;
+export type AlertRule = (typeof ALERT_RULES)[number];
+export type AlertSeverity = Alert["severity"];
+
+/** Where an alert points to (backend/app/services/alerts.py). */
+export interface AlertLink {
+  page: "dashboard" | "churn" | "insights" | "dataset";
+  dataset_id: string;
+}
+
+/** The numbers an alert compared; which fields are present depends on the rule. */
+export interface AlertPayload {
+  link?: AlertLink;
+  metric?: string;
+  method?: "forecast" | "month_over_month";
+  period?: string;
+  previous_period?: string;
+  current?: number;
+  previous?: number;
+  expected?: number;
+  change_pct?: number;
+  range_level?: number;
+  range_low?: number;
+  range_high?: number;
+  forecast_made_through?: string | null;
+  kind?: "spike" | "drop";
+  start?: string;
+  end?: string;
+  previous_last_date?: string;
+  band?: "high" | "top_10pct";
+  previous_customers?: number;
+  current_customers?: number;
+  previous_yearly_spend?: number;
+  current_yearly_spend?: number;
+  previous_version?: number;
+  current_version?: number;
+  change_points?: number;
+  count?: number;
+  names?: string[];
+  days?: number;
+  as_of?: string | null;
+  dataset_name?: string;
+  last_date?: string;
+  threshold_days?: number;
+  currency?: string | null;
+}
+
+export function isReportActive(status: ReportStatus | undefined): boolean {
+  return status === "queued" || status === "running";
+}

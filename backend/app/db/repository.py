@@ -5,7 +5,8 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, delete, func, insert, select
+from sqlalchemy import Select, delete, func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core.errors import NotFoundError
@@ -21,6 +22,7 @@ from app.models.analysis import (
 from app.models.dataset import Dataset, DatasetVersion
 from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
+from app.models.report import Alert, AlertSettings, Report, ReportStatus
 from app.models.user import Role, User
 
 
@@ -181,6 +183,9 @@ class DatasetVersionRepository(TenantRepository[DatasetVersion]):
         return self.session.scalars(stmt).first()
 
 
+FINISHED_RUN_STATES = (AnalysisStatus.completed.value, AnalysisStatus.completed_with_warnings.value)
+
+
 class AnalysisRunRepository(TenantRepository[AnalysisRun]):
     """Analysis runs of one tenant."""
 
@@ -220,6 +225,34 @@ class AnalysisRunRepository(TenantRepository[AnalysisRun]):
         if version is not None:
             stmt = stmt.where(DatasetVersion.version == version)
         return [(run, number, int(n)) for run, number, n in self.session.execute(stmt)]
+
+    def previous_with_summary(self, dataset_id: uuid.UUID, run: AnalysisRun) -> AnalysisRun | None:
+        """Return the newest finished run of the dataset before `run` that kept a summary."""
+        stmt = (
+            self._select()
+            .join(DatasetVersion, DatasetVersion.id == AnalysisRun.dataset_version_id)
+            .where(
+                DatasetVersion.dataset_id == dataset_id,
+                AnalysisRun.id != run.id,
+                AnalysisRun.created_at <= run.created_at,
+                AnalysisRun.summary.is_not(None),
+                AnalysisRun.status.in_(FINISHED_RUN_STATES),
+            )
+            .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
+        )
+        return self.session.scalars(stmt).first()
+
+    def latest_finished_for_version(self, version_id: uuid.UUID) -> AnalysisRun | None:
+        """Return the newest completed (or completed with warnings) run of a version."""
+        stmt = (
+            self._select()
+            .where(
+                AnalysisRun.dataset_version_id == version_id,
+                AnalysisRun.status.in_(FINISHED_RUN_STATES),
+            )
+            .order_by(AnalysisRun.created_at.desc())
+        )
+        return self.session.scalars(stmt).first()
 
 
 class InsightRepository(TenantRepository[Insight]):
@@ -542,3 +575,96 @@ class MessageRepository(TenantRepository[Message]):
             Message.tenant_id == self.tenant_id, Message.conversation_id == conversation_id
         )
         return int(self.session.scalar(stmt) or 0)
+
+
+class ReportRepository(TenantRepository[Report]):
+    """Generated reports of one tenant."""
+
+    model = Report
+
+    def active(self) -> Report | None:
+        """Return a queued or running report of the tenant, if any."""
+        stmt = self._select().where(
+            Report.status.in_([ReportStatus.queued.value, ReportStatus.running.value])
+        )
+        return self.session.scalars(stmt).first()
+
+    def count(self) -> int:
+        """Return how many reports the tenant keeps."""
+        stmt = select(func.count(Report.id)).where(Report.tenant_id == self.tenant_id)
+        return int(self.session.scalar(stmt) or 0)
+
+    def page(
+        self,
+        *,
+        dataset_id: uuid.UUID | None,
+        status: str | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[Report], int]:
+        """Return one page of reports, newest first, and the filtered total."""
+        stmt = self._select()
+        if dataset_id is not None:
+            stmt = stmt.where(Report.dataset_id == dataset_id)
+        if status is not None:
+            stmt = stmt.where(Report.status == status)
+        total = self.session.scalar(select(func.count()).select_from(stmt.subquery()))
+        rows = self.session.scalars(
+            stmt.order_by(Report.created_at.desc(), Report.id).limit(limit).offset(offset)
+        )
+        return list(rows), int(total or 0)
+
+
+class AlertRepository(TenantRepository[Alert]):
+    """In-app alerts of one tenant."""
+
+    model = Alert
+
+    def page(self, *, unread: bool, limit: int, offset: int) -> tuple[list[Alert], int]:
+        """Return one page of alerts, newest first, and the filtered total."""
+        stmt = self._select()
+        if unread:
+            stmt = stmt.where(Alert.read_at.is_(None))
+        total = self.session.scalar(select(func.count()).select_from(stmt.subquery()))
+        rows = self.session.scalars(
+            stmt.order_by(Alert.created_at.desc(), Alert.id).limit(limit).offset(offset)
+        )
+        return list(rows), int(total or 0)
+
+    def unread_count(self) -> int:
+        """Return how many alerts are unread."""
+        stmt = select(func.count(Alert.id)).where(
+            Alert.tenant_id == self.tenant_id, Alert.read_at.is_(None)
+        )
+        return int(self.session.scalar(stmt) or 0)
+
+    def mark_all_read(self) -> int:
+        """Mark every unread alert read; return how many changed."""
+        result = self.session.execute(
+            update(Alert)
+            .where(Alert.tenant_id == self.tenant_id, Alert.read_at.is_(None))
+            .values(read_at=datetime.now(UTC))
+        )
+        return int(getattr(result, "rowcount", 0) or 0)
+
+    def insert_if_new(self, **fields: Any) -> bool:
+        """Insert an alert unless one with the same dedupe key exists; return whether it did."""
+        if "tenant_id" in fields:
+            raise ValueError("tenant_id is set by the repository")
+        stmt = (
+            pg_insert(Alert)
+            .values(id=uuid.uuid4(), tenant_id=self.tenant_id, **fields)
+            .on_conflict_do_nothing(constraint="uq_alerts_tenant_dedupe")
+            .returning(Alert.id)
+        )
+        return self.session.execute(stmt).first() is not None
+
+
+class AlertSettingsRepository(TenantRepository[AlertSettings]):
+    """The alert thresholds of one tenant (at most one row)."""
+
+    model = AlertSettings
+
+    def current(self) -> AlertSettings | None:
+        """Return the tenant's saved thresholds, or None when it uses the defaults."""
+        return self.session.scalars(self._select()).first()

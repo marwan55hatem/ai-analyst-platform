@@ -12,10 +12,15 @@ from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionSt
 from app.models.model_run import ModelRun
 from app.models.profile import CleaningLog, ColumnProfile
 from app.models.refresh_token import RefreshToken
+from app.models.report import Alert, AlertSettings, Report, ReportStatus
 from app.models.tenant import Tenant
 from app.models.user import Role, User
 
 __all__ = [
+    "Alert",
+    "AlertSettings",
+    "Report",
+    "ReportStatus",
     "AgentUsageDaily",
     "BusinessProfile",
     "Conversation",

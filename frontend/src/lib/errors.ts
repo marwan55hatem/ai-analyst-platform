@@ -26,6 +26,12 @@ export const KNOWN_ERROR_CODES = [
   "nothing_to_apply",
   "invalid_strategy",
   "unknown_fix",
+  "report_busy",
+  "report_limit",
+  "report_no_analysis",
+  "report_not_ready",
+  "report_missing",
+  "report_running",
   "internal_error",
 ] as const;
 

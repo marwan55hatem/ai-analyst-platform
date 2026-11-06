@@ -11,6 +11,9 @@ import {
 import { api, unwrap } from "@/lib/api/client";
 import type {
   AiUsage,
+  Alert,
+  AlertSettings,
+  AlertSettingsIn,
   AnalysisRun,
   AnalysisRunListItem,
   Anomalies,
@@ -33,6 +36,9 @@ import type {
   Preview,
   Profile,
   Quality,
+  Report,
+  ReportLocale,
+  ReportPage,
   Role,
   ScenarioIn,
   Segments,
@@ -42,7 +48,7 @@ import type {
   TimeSeries,
   WhatIfResult,
 } from "@/lib/api/types";
-import { isRunActive } from "@/lib/api/types";
+import { isReportActive, isRunActive } from "@/lib/api/types";
 
 const POLL_MS = 1500;
 
@@ -61,6 +67,10 @@ export const keys = {
   messages: (id: string) => ["conversation", id, "messages"] as const,
   usage: ["ai-usage"] as const,
   profile: ["company-profile"] as const,
+  reports: ["reports"] as const,
+  alerts: ["alerts"] as const,
+  unread: ["alerts", "unread-count"] as const,
+  alertSettings: ["alert-settings"] as const,
 };
 
 /** Results of a finished run do not change, so they stay fresh for the session. */
@@ -532,5 +542,105 @@ export function useCompanyProfile() {
   return useQuery({
     queryKey: keys.profile,
     queryFn: () => unwrap(api.GET("/api/v1/company/profile")) as Promise<BusinessProfile>,
+  });
+}
+
+// ---- reports and alerts ------------------------------------------------------------------------
+
+/** How often the header asks for new alerts. TanStack pauses it while the tab is hidden. */
+export const ALERT_POLL_MS = 60_000;
+export const REPORT_PAGE = 20;
+export const ALERT_PAGE = 20;
+
+/** The company's reports, polled while one is being generated. */
+export function useReports() {
+  return useQuery({
+    queryKey: keys.reports,
+    queryFn: () =>
+      unwrap(api.GET("/api/v1/reports", { params: { query: { limit: REPORT_PAGE } } })) as Promise<ReportPage>,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((r) => isReportActive(r.status)) ? POLL_MS * 2 : false,
+  });
+}
+
+export function useCreateReport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, version, locale }: { datasetId: string; version: number; locale: ReportLocale }) =>
+      unwrap(
+        api.POST("/api/v1/datasets/{dataset_id}/reports", {
+          params: { path: { dataset_id: datasetId } },
+          body: { version, locale },
+        }),
+      ) as Promise<Report>,
+    onSettled: () => client.invalidateQueries({ queryKey: keys.reports }),
+  });
+}
+
+export function useDeleteReport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.DELETE("/api/v1/reports/{report_id}", { params: { path: { report_id: id } } })),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.reports }),
+  });
+}
+
+/** The alert feed, a page at a time (newest first). */
+export function useAlerts(unread: boolean) {
+  return useInfiniteQuery({
+    queryKey: [...keys.alerts, "feed", { unread }],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/alerts", { params: { query: { unread, limit: ALERT_PAGE, offset: pageParam } } }),
+      ) as Promise<{ items: Alert[]; total: number }>,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.items.length, 0);
+      return loaded < last.total ? loaded : undefined;
+    },
+  });
+}
+
+/** Unread alerts for the header bell: every minute while the tab is visible, never in the background. */
+export function useUnreadCount() {
+  return useQuery({
+    queryKey: keys.unread,
+    queryFn: async () => (await unwrap(api.GET("/api/v1/alerts/unread-count"))).count,
+    refetchInterval: ALERT_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useMarkRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST("/api/v1/alerts/{alert_id}/read", { params: { path: { alert_id: id } } })),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.alerts }),
+  });
+}
+
+export function useMarkAllRead() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrap(api.POST("/api/v1/alerts/read-all")),
+    onSettled: () => client.invalidateQueries({ queryKey: keys.alerts }),
+  });
+}
+
+export function useAlertSettings() {
+  return useQuery({
+    queryKey: keys.alertSettings,
+    queryFn: () => unwrap(api.GET("/api/v1/alert-settings")) as Promise<AlertSettings>,
+  });
+}
+
+export function useSaveAlertSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AlertSettingsIn) =>
+      unwrap(api.PUT("/api/v1/alert-settings", { body })) as Promise<AlertSettings>,
+    onSuccess: (saved) => client.setQueryData(keys.alertSettings, saved),
   });
 }
