@@ -117,10 +117,17 @@ def _profile_and_store(db: Session, tenant_id: uuid.UUID, version: DatasetVersio
         score=result.quality.score,
         columns=len(result.columns),
     )
-    if get_settings().auto_analyze:
+    if get_settings().auto_analyze and version.auto_analyze and _analysable(db, tenant_id, version):
         from app.services.analysis import enqueue_analysis  # local import: it imports this module
 
         enqueue_analysis(db, tenant_id, version)
+
+
+def _analysable(db: Session, tenant_id: uuid.UUID, version: DatasetVersion) -> bool:
+    """Return False for a file with no date and no revenue or quantity column."""
+    from app.services.compatibility import is_analysable
+
+    return is_analysable(ColumnProfileRepository(db, tenant_id).for_version(version.id))
 
 
 def enqueue_profile(db: Session, tenant_id: uuid.UUID, version: DatasetVersion) -> None:

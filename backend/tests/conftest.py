@@ -98,6 +98,26 @@ def alembic_config(url: URL) -> Config:
     return cfg
 
 
+def _pango_problem() -> str | None:
+    """Return why WeasyPrint cannot load Pango here, or None when PDF rendering works."""
+    try:
+        import weasyprint  # noqa: F401  (raises OSError when the Pango libraries are missing)
+    except (OSError, ImportError) as exc:
+        return f"WeasyPrint cannot load Pango ({exc.__class__.__name__}); see docs/reports.md"
+    return None
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip the PDF tests with a reason when Pango is missing (Docker and CI always have it)."""
+    reason = _pango_problem()
+    if reason is None:
+        return
+    skip = pytest.mark.skip(reason=reason)
+    for item in items:
+        if item.path.name == "test_reports.py":
+            item.add_marker(skip)
+
+
 @pytest.fixture(scope="session")
 def database() -> Iterator[URL]:
     """Create the test database and migrate it to head."""

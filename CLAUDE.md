@@ -80,6 +80,7 @@ insights, model_runs, segment_assignments, churn_scores, conversations, messages
 - [x] Step 12 dashboard and insights — dashboard (KPIs vs previous period, trend with forecast band and anomaly markers, Pareto contributors, top-5 attention list) and insights pages (feed with evidence drawer, forecast, RFM segments, churn with SHAP reasons, what-if scenarios) with honest skip/low-confidence states, new timeseries endpoint plus sort and CSV export for churn/segments, reusable chart wrappers, Vitest + Playwright (visual snapshots, axe on every page, 2-year render timing)
 - [x] Step 12b fixes from manual testing — honest cleaning-plan intro, log-scale outliers with positive bounds, duplicate cap above 0.5% with one confidence per file, actionable attention list, All time label, weekly sparklines, anomalies need z >= 4 and a 3x effect (precision and recall 1.00 on the 309k-row sample) shown top 10 of N, axis ticks at week and month grain, distinct forecast bands, forecast memory guard raised so large files test all models, Arabic copy fixes, full company name on mobile
 - [x] Step 13 chat and settings — /chat with streaming over fetch, Stop that stores the partial answer, Retry that reuses the question, one turn per conversation, safe markdown, "How I got this", verifier and computed confidence on live and stored answers, charts with table view, capability-based starters, ?insight chip, EN/AR RTL, /ai/usage with usage, model and privacy in Settings, scripted e2e paths with a guard against live models, Step 12b carryover (reports UI stays with Step 10)
+- [x] Step 12c new version upload — "Upload new data" on the dataset page (a complete export that replaces the data, never an append), compatibility check (added/missing columns, type or role changes, lost date or revenue, shorter-period warning; blocks only unanalysable files), per-upload automatic-analysis flag, version history, outcome panel with alert count, no alerts from cleaning-derived versions, deterministic chat clipboard test, Pango skip reason; docs/dataset-versions.md
 - [ ] Step 14 security and observability — must include: pseudonymise customer_id toward the LLM (HMAC, mapped back for display)
 - [ ] Step 15 deployment and docs — must include: worker sizing (at least 1 GB: `mem_limit` 1024m, `FORECAST_MEMORY_MB` guard 850 MB); Lighthouse Performance target of 80 or more on the dashboard with the deployed build, using lazy-loaded charts and deferred below-the-fold panels (baseline 44-47 on the dashboard, 55-70 on other pages)
 
@@ -93,6 +94,10 @@ insights, model_runs, segment_assignments, churn_scores, conversations, messages
 - `.gitattributes` has `* text=auto eol=lf` so shell scripts keep LF endings in Docker.
 - Git has a remote `origin` and a `main` branch. Branch per step; push only the step
   branch; never push to main.
+
+- Windows: local `make test` needs MSYS2 Pango (installed in `C:\msys64`; `pacman -S
+  mingw-w64-ucrt-x86_64-pango`) to render PDFs. Without it the `test_reports.py` tests skip with a
+  reason ("WeasyPrint cannot load Pango"). The Docker image and CI install Pango automatically.
 
 ## Workflow rules (every step)
 1. Do all the work yourself, including what you would normally ask the user to run in PowerShell: start the stack (`make up`, `make migrate`), run the manual walkthrough against it (upload the sample files, call the endpoints, read the results) and show the real outputs, trimmed to what matters, with a pass or fail per check. Do not hand over lists of commands.

@@ -7,17 +7,19 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession, require_role
-from app.core.errors import ErrorResponse, UnprocessableError
+from app.core.errors import ConflictError, ErrorResponse, UnprocessableError
 from app.db.repository import DatasetVersionRepository
 from app.models.dataset import Dataset
 from app.models.user import Role
 from app.schemas.dataset import (
+    CompatibilityOut,
     DatasetDetail,
     DatasetOut,
     DatasetVersionOut,
     PreviewColumn,
     PreviewOut,
     SheetsOut,
+    VersionSummary,
 )
 from app.schemas.profile import (
     ApplyRequest,
@@ -110,16 +112,45 @@ def create_version(
     repo: DatasetRepo,
     file: Annotated[UploadFile, File()],
     sheet: Sheet = None,
+    analyze: Annotated[
+        bool, Form(description="Run the analysis automatically once profiling is done.")
+    ] = True,
 ) -> DatasetDetail:
-    """Add a version; the current version stays active until the new one is ready."""
+    """Add a version that REPLACES the data (no append); the current one stays until it is ready."""
     dataset = repo.get_or_404(dataset_id)
     version = service.add_version(
-        db, user, dataset, filename=file.filename, file=file.file, sheet=sheet
+        db, user, dataset, filename=file.filename, file=file.file, sheet=sheet, analyze=analyze
     )
     db.commit()
     service.enqueue_ingest(db, user.tenant_id, version)
     db.refresh(dataset)
     return _detail(db, dataset)
+
+
+@router.get(
+    "/{dataset_id}/versions",
+    response_model=list[VersionSummary],
+    summary="Version history with quality score and latest analysis status",
+    responses=responses.NOT_FOUND,
+)
+def list_versions(
+    dataset_id: uuid.UUID, user: CurrentUser, db: DbSession, repo: DatasetRepo
+) -> list[VersionSummary]:
+    """Return every version of the dataset, newest first."""
+    return service.version_summaries(db, user.tenant_id, repo.get_or_404(dataset_id))
+
+
+@router.get(
+    "/{dataset_id}/versions/{version}/compatibility",
+    response_model=CompatibilityOut,
+    summary="Compare a version with the previous one (columns, types, roles, period)",
+    responses=responses.NOT_FOUND,
+)
+def version_compatibility(
+    dataset_id: uuid.UUID, version: int, user: CurrentUser, db: DbSession, repo: DatasetRepo
+) -> CompatibilityOut:
+    """Return `pending` until the version is profiled, then the comparison."""
+    return service.version_compatibility(db, user.tenant_id, repo.get_or_404(dataset_id), version)
 
 
 @router.get("", response_model=list[DatasetOut], summary="List datasets")
@@ -175,7 +206,7 @@ def list_sheets(dataset_id: uuid.UUID, db: DbSession, repo: DatasetRepo) -> Shee
 @router.get(
     "/{dataset_id}/preview",
     response_model=PreviewOut,
-    summary="First rows and the column list of the current version",
+    summary="First rows and the column list of a version (default: the current one)",
     responses={**responses.NOT_FOUND, **responses.CONFLICT},
 )
 def preview_dataset(
@@ -184,20 +215,29 @@ def preview_dataset(
     db: DbSession,
     repo: DatasetRepo,
     rows: Annotated[int, Query(ge=1, le=500)] = 50,
+    version: Annotated[
+        int | None, Query(ge=1, description="Version number; default: current")
+    ] = None,
 ) -> PreviewOut:
     """Run a bounded SELECT through the safe query layer."""
-    version = service.current_ready_version(db, repo.get_or_404(dataset_id))
-    result = SafeQueryService(db).run(user.tenant_id, version.id, "SELECT * FROM data", rows)
-    originals = {m["normalized"]: m["original"] for m in (version.column_map or [])}
+    dataset = repo.get_or_404(dataset_id)
+    if version is None:
+        target = service.current_ready_version(db, dataset)
+    else:
+        target = profiling.resolve_version(db, dataset, version)
+        if target.status != "ready" or target.parquet_path is None:
+            raise ConflictError("This version is not ready yet.", code="dataset_not_ready")
+    result = SafeQueryService(db).run(user.tenant_id, target.id, "SELECT * FROM data", rows)
+    originals = {m["normalized"]: m["original"] for m in (target.column_map or [])}
     return PreviewOut(
-        version_id=version.id,
+        version_id=target.id,
         columns=[
             PreviewColumn(name=n, original=originals.get(n), type=t)
             for n, t in zip(result.columns, result.column_types, strict=True)
         ],
         rows=result.rows,
         row_count=len(result.rows),
-        total_rows=version.row_count,
+        total_rows=target.row_count,
     )
 
 

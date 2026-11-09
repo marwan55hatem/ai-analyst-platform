@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -111,4 +113,5 @@ class DatasetVersion(TenantMixin, Base):
     source_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dataset_versions.id", ondelete="SET NULL"), nullable=True
     )
+    auto_analyze: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     created_at: Mapped[datetime] = created_at_column()

@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import structlog
 from sqlalchemy import func, select
@@ -11,11 +11,16 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, UnprocessableError
-from app.db.repository import DatasetRepository, DatasetVersionRepository
+from app.db.repository import (
+    ColumnProfileRepository,
+    DatasetRepository,
+    DatasetVersionRepository,
+)
 from app.db.session import get_sessionmaker
 from app.models.analysis import AnalysisRun, AnalysisStatus
 from app.models.dataset import Dataset, DatasetVersion, ProfileStatus, VersionStatus
 from app.models.user import User
+from app.schemas.dataset import CompatibilityOut, VersionSummary
 from app.services import ingest, storage, upload_validation
 from app.services.analysis import ANALYSIS_STUCK_ERROR
 from app.services.profiling.service import PROFILE_STUCK_ERROR, enqueue_profile
@@ -51,13 +56,14 @@ def add_version(
     filename: str | None,
     file: BinaryIO,
     sheet: str | None,
+    analyze: bool = True,
 ) -> DatasetVersion:
-    """Add a new version to an existing dataset (caller commits, then enqueues)."""
+    """Add a new version that replaces the data; `analyze` = run the analysis after profiling."""
     ext = upload_validation.file_extension(filename)
     upload_validation.check_head(file, ext)
     # Lock the dataset row so concurrent uploads get distinct version numbers.
     DatasetRepository(db, user.tenant_id).get_or_404(dataset.id, for_update=True)
-    return _store_version(db, user, dataset, ext, filename, file, sheet)
+    return _store_version(db, user, dataset, ext, filename, file, sheet, analyze)
 
 
 def _store_version(
@@ -68,6 +74,7 @@ def _store_version(
     filename: str | None,
     file: BinaryIO,
     sheet: str | None,
+    analyze: bool = True,
 ) -> DatasetVersion:
     """Save the original file and create the version row; undo the file on any error."""
     backend = storage.get_storage()
@@ -92,6 +99,7 @@ def _store_version(
             size_bytes=written,
             status=VersionStatus.uploaded.value,
             sheet=sheet,
+            auto_analyze=analyze,
         )
         db.flush()
     except BaseException:
@@ -296,3 +304,88 @@ def fail_stuck_ingestions(
         logger.warning("analysis_timed_out", run_id=str(run.id), tenant_id=str(run.tenant_id))
     db.commit()
     return len(stuck) + len(stuck_profiles) + len(stuck_runs)
+
+
+# ---- version history and compatibility -------------------------------------------------------
+
+
+def version_summaries(db: Session, tenant_id: uuid.UUID, dataset: Dataset) -> list[VersionSummary]:
+    """Version history, newest first, with each version's latest run status and alert count."""
+    from app.db.repository import AlertRepository, AnalysisRunRepository
+
+    versions = DatasetVersionRepository(db, tenant_id).for_dataset(dataset.id)
+    runs = AnalysisRunRepository(db, tenant_id).for_versions([v.id for v in versions])
+    latest: dict[uuid.UUID, Any] = {}
+    for item in runs:  # newest first, so the first run seen per version is its latest
+        latest.setdefault(item.dataset_version_id, item)
+    raised = AlertRepository(db, tenant_id).counts_by_run([r.id for r in runs])
+    out: list[VersionSummary] = []
+    for v in versions:
+        run = latest.get(v.id)
+        out.append(
+            VersionSummary(
+                id=v.id,
+                version=v.version,
+                created_at=v.created_at,
+                source="cleaning" if v.source_version_id else "upload",
+                original_filename=v.original_filename,
+                row_count=v.row_count,
+                quality_score=v.quality_score,
+                status=v.status,
+                profile_status=v.profile_status,
+                auto_analyze=v.auto_analyze,
+                is_current=v.id == dataset.current_version_id,
+                analysis_status=run.status if run else None,
+                alerts_raised=sum(
+                    raised.get(r.id, 0) for r in runs if r.dataset_version_id == v.id
+                ),
+            )
+        )
+    return out
+
+
+def version_compatibility(
+    db: Session, tenant_id: uuid.UUID, dataset: Dataset, number: int
+) -> CompatibilityOut:
+    """Compare a version with the highest lower version that has a ready profile."""
+    from app.services import compatibility
+
+    versions = DatasetVersionRepository(db, tenant_id).for_dataset(dataset.id)
+    target = next((v for v in versions if v.version == number), None)
+    if target is None:
+        raise NotFoundError(f"Version {number} not found")
+    if target.status == VersionStatus.failed.value:
+        return CompatibilityOut(
+            version=number,
+            previous_version=None,
+            status="blocked",
+            blocking=True,
+            blocking_reason=target.error or "The file could not be read.",
+        )
+    if target.status != VersionStatus.ready.value or target.profile_status != "ready":
+        if target.profile_status == "failed":
+            return CompatibilityOut(
+                version=number,
+                previous_version=None,
+                status="blocked",
+                blocking=True,
+                blocking_reason=target.profile_error or "The file could not be profiled.",
+            )
+        return CompatibilityOut(version=number, previous_version=None, status="pending")
+    profiles = ColumnProfileRepository(db, tenant_id)
+    previous = next(
+        (
+            v
+            for v in versions
+            if v.version < number and v.status == "ready" and v.profile_status == "ready"
+        ),
+        None,
+    )
+    return compatibility.compare(
+        number,
+        previous.version if previous else None,
+        profiles.for_version(previous.id) if previous else [],
+        profiles.for_version(target.id),
+        previous_rows=previous.row_count if previous else None,
+        new_rows=target.row_count,
+    )

@@ -722,7 +722,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * First rows and the column list of the current version
+         * First rows and the column list of a version (default: the current one)
          * @description Run a bounded SELECT through the safe query layer.
          */
         get: operations["preview_dataset_api_v1_datasets__dataset_id__preview_get"];
@@ -861,13 +861,37 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Version history with quality score and latest analysis status
+         * @description Return every version of the dataset, newest first.
+         */
+        get: operations["list_versions_api_v1_datasets__dataset_id__versions_get"];
         put?: never;
         /**
          * Upload a new version of a dataset
-         * @description Add a version; the current version stays active until the new one is ready.
+         * @description Add a version that REPLACES the data (no append); the current one stays until it is ready.
          */
         post: operations["create_version_api_v1_datasets__dataset_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/datasets/{dataset_id}/versions/{version}/compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare a version with the previous one (columns, types, roles, period)
+         * @description Return `pending` until the version is profiled, then the comparison.
+         */
+        get: operations["version_compatibility_api_v1_datasets__dataset_id__versions__version__compatibility_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1403,6 +1427,12 @@ export interface components {
         };
         /** Body_create_version_api_v1_datasets__dataset_id__versions_post */
         Body_create_version_api_v1_datasets__dataset_id__versions_post: {
+            /**
+             * Analyze
+             * @description Run the analysis automatically once profiling is done.
+             * @default true
+             */
+            analyze: boolean;
             /** File */
             file: string;
             /** Sheet */
@@ -1657,6 +1687,22 @@ export interface components {
             version_id: string;
         };
         /**
+         * ColumnChange
+         * @description A column whose inferred type or role differs from the previous version.
+         */
+        ColumnChange: {
+            /** Name */
+            name: string;
+            /** New Role */
+            new_role: string;
+            /** New Type */
+            new_type: string;
+            /** Previous Role */
+            previous_role: string;
+            /** Previous Type */
+            previous_type: string;
+        };
+        /**
          * ColumnMapping
          * @description Original header and the normalised column name used in SQL.
          */
@@ -1689,6 +1735,46 @@ export interface components {
             stats: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * CompatibilityOut
+         * @description How a new version compares with the previous one (never blocks on added columns).
+         */
+        CompatibilityOut: {
+            /** Added */
+            added: string[];
+            /**
+             * Blocking
+             * @default false
+             */
+            blocking: boolean;
+            /** Blocking Reason */
+            blocking_reason: string | null;
+            /** Changed */
+            changed: components["schemas"]["ColumnChange"][];
+            /** Missing */
+            missing: string[];
+            /** Missing Roles */
+            missing_roles: string[];
+            /** New First Date */
+            new_first_date: string | null;
+            /** New Rows */
+            new_rows: number | null;
+            /** Previous First Date */
+            previous_first_date: string | null;
+            /** Previous Rows */
+            previous_rows: number | null;
+            /** Previous Version */
+            previous_version: number | null;
+            /**
+             * Shorter Period
+             * @default false
+             */
+            shorter_period: boolean;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
         };
         /**
          * ConversationCreate
@@ -2788,6 +2874,44 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VersionSummary
+         * @description One row of a dataset's version history.
+         */
+        VersionSummary: {
+            /** Alerts Raised */
+            alerts_raised: number;
+            /** Analysis Status */
+            analysis_status: string | null;
+            /** Auto Analyze */
+            auto_analyze: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Current */
+            is_current: boolean;
+            /** Original Filename */
+            original_filename: string;
+            /** Profile Status */
+            profile_status: string;
+            /** Quality Score */
+            quality_score: number | null;
+            /** Row Count */
+            row_count: number | null;
+            /** Source */
+            source: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: number;
         };
         /**
          * WhatIfOut
@@ -4896,6 +5020,8 @@ export interface operations {
         parameters: {
             query?: {
                 rows?: number;
+                /** @description Version number; default: current */
+                version?: number | null;
             };
             header?: never;
             path: {
@@ -5320,6 +5446,55 @@ export interface operations {
             };
         };
     };
+    list_versions_api_v1_datasets__dataset_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionSummary"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_version_api_v1_datasets__dataset_id__versions_post: {
         parameters: {
             query?: never;
@@ -5387,6 +5562,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    version_compatibility_api_v1_datasets__dataset_id__versions__version__compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompatibilityOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

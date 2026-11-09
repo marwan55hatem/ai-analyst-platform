@@ -2,6 +2,7 @@
 
 import { Info, Loader2, Play, RotateCcw } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -29,7 +30,10 @@ import { CleaningPlan } from "./cleaning-plan";
 import { ColumnsTable } from "./columns-table";
 import { HealthPanel, IssueList } from "./health-panel";
 import { PreviewGrid } from "./preview-grid";
+import { NewVersionDialog } from "./new-version-dialog";
 import { StatusChip, chipState } from "./status-chip";
+import { VersionList } from "./version-list";
+import { VersionRefreshPanel } from "./version-refresh-panel";
 
 function Section({
   id,
@@ -73,7 +77,19 @@ function sourceScore(dataset: DatasetDetail, v: DatasetVersion): { version: numb
   return source ? { version: source.version, score: source.quality_score } : null;
 }
 
-function ReadyView({ dataset, v }: { dataset: DatasetDetail; v: DatasetVersion }) {
+function ReadyView({
+  dataset,
+  v,
+  uploadAction,
+  versionsSection,
+  banner,
+}: {
+  dataset: DatasetDetail;
+  v: DatasetVersion;
+  uploadAction: ReactNode;
+  versionsSection: ReactNode;
+  banner: ReactNode;
+}) {
   const t = useTranslations("detail");
   const ta = useTranslations("analysis");
   const tcol = useTranslations("columns");
@@ -119,9 +135,15 @@ function ReadyView({ dataset, v }: { dataset: DatasetDetail; v: DatasetVersion }
       <PageHeader
         title={dataset.name}
         meta={<VersionMeta v={v} source={source?.version ?? null} />}
-        actions={runButton}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {uploadAction}
+            {runButton}
+          </div>
+        }
       />
       <div className="space-y-10">
+        {banner}
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
           <Section id="health" title={t("sections.health")}>
             <div className="rounded-lg border bg-card p-5">
@@ -202,6 +224,8 @@ function ReadyView({ dataset, v }: { dataset: DatasetDetail; v: DatasetVersion }
           )}
         </Section>
 
+        {versionsSection}
+
         <Section id="preview" title={t("sections.preview")}>
           {preview.isPending ? (
             <Skeleton className="h-64 w-full" />
@@ -242,7 +266,12 @@ export function DatasetDetailView({ id }: { id: string }) {
   const t = useTranslations("detail");
   const tc = useTranslations("common");
   const { data, isPending, isError, error, refetch } = useDataset(id);
-  const v = data?.latest_version ?? null;
+  const tv = useTranslations("versions");
+  const params = useSearchParams();
+  const [refresh, setRefresh] = useState<{ version: number; analyze: boolean } | null>(null);
+  const wanted = Number(params.get("v"));
+  const v =
+    (wanted ? data?.versions?.find((x) => x.version === wanted) : null) ?? data?.latest_version ?? null;
   const rerun = useRerunProfile(id, v?.version ?? 1);
   const errorMessage = useErrorMessage();
 
@@ -266,13 +295,60 @@ export function DatasetDetailView({ id }: { id: string }) {
   }
   if (!v) return null;
 
+  const latest = data.latest_version ?? v;
+  const onUploaded = (detail: DatasetDetail, analyze: boolean) =>
+    setRefresh({ version: detail.latest_version?.version ?? latest.version + 1, analyze });
+  const uploadAction = <NewVersionDialog datasetId={id} onUploaded={onUploaded} />;
+  const banner = (
+    <>
+      {refresh ? (
+        <VersionRefreshPanel
+          key={refresh.version}
+          datasetId={id}
+          version={refresh.version}
+          analyze={refresh.analyze}
+          onDismiss={() => setRefresh(null)}
+          onUploaded={onUploaded}
+        />
+      ) : null}
+      {v.version !== latest.version ? (
+        <p role="status" className="flex flex-wrap items-center gap-2 rounded-md bg-info-soft p-3 text-sm">
+          {tv("viewingOld", { version: v.version, latest: latest.version })}
+          <Link href={`/datasets/${id}`} className="font-medium underline underline-offset-4">
+            {tv("backToLatest")}
+          </Link>
+        </p>
+      ) : null}
+    </>
+  );
+  const versionsSection = (
+    <Section id="versions" title={tv("list.title")}>
+      <VersionList
+        datasetId={id}
+        selected={v.version}
+        hrefFor={(n) => (n === latest.version ? `/datasets/${id}` : `/datasets/${id}?v=${n}`)}
+      />
+    </Section>
+  );
+
   const state = chipState(v);
-  if (state === "ready" && v.profile_status === "ready") return <ReadyView key={v.id} dataset={data} v={v} />;
+  if (state === "ready" && v.profile_status === "ready")
+    return (
+      <ReadyView
+        key={v.id}
+        dataset={data}
+        v={v}
+        uploadAction={uploadAction}
+        versionsSection={versionsSection}
+        banner={banner}
+      />
+    );
 
   return (
     <>
-      <PageHeader title={data.name} meta={<VersionMeta v={v} source={null} />} />
-      {state === "processing" ? (
+      <PageHeader title={data.name} meta={<VersionMeta v={v} source={null} />} actions={uploadAction} />
+      <div className="mb-6 space-y-6">{banner}</div>
+      {refresh?.version === v.version && state !== "ready" ? null : state === "processing" ? (
         <BusyBlock title={t("processingTitle")} body={t("processingBody")} />
       ) : state === "checking" ? (
         <BusyBlock title={t("checkingTitle")} body={t("checkingBody")} />
@@ -308,6 +384,7 @@ export function DatasetDetailView({ id }: { id: string }) {
           </Button>
         </ErrorState>
       )}
+      <div className="mt-10">{versionsSection}</div>
     </>
   );
 }

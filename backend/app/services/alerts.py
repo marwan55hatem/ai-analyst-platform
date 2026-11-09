@@ -490,6 +490,10 @@ def evaluate_run(db: Session, tenant_id: uuid.UUID, run_id: uuid.UUID) -> int:
     version = DatasetVersionRepository(db, tenant_id).get(run.dataset_version_id)
     if version is None:
         return 0
+    if version.source_version_id is not None:
+        # A cleaned copy of earlier data is not new data: keep its summary, raise no alerts.
+        logger.info("alerts_skipped_cleaning_version", run_id=str(run_id))
+        return 0
     previous = runs.previous_with_summary(version.dataset_id, run)
     if previous is None or previous.summary is None:
         return 0
