@@ -88,7 +88,9 @@ async function main() {
     await page.type('input[autocomplete="current-password"]', user.password);
     await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('button[type="submit"]')]);
     const pages = ["/datasets", "/datasets/new", detail, "/dashboard", "/insights", "/insights/forecast", "/insights/segments", "/insights/churn", "/insights/what-if", "/chat", answered, "/reports", "/settings"];
-    for (const url of pages.filter((u) => !ONLY || ONLY.some((name) => u.split("?")[0] === name))) {
+    // "/datasets/[id]" in LIGHTHOUSE_PAGES selects the dataset page (its id is made per run).
+    const wanted = (u) => !ONLY || ONLY.some((name) => u.split("?")[0] === name || (name === "/datasets/[id]" && u === detail));
+    for (const url of pages.filter(wanted)) {
       results.push(await audit(page, url, locale));
     }
     await context.close();

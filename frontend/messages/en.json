@@ -1127,5 +1127,79 @@
     "pointsValue": "{n} points",
     "daysValue": "{n} days",
     "loadFailed": "Alert thresholds could not be loaded."
+  },
+  "versions": {
+    "uploadButton": "Upload new data",
+    "dialogTitle": "Upload new data",
+    "dialogBody": "Choose a complete export of the same data. This upload replaces the previous data for analysis, and the earlier version stays in the version list.",
+    "completeExport": "The file should be a complete export of the same data, not only the new rows.",
+    "analyze": "Analyse automatically",
+    "analyzeHint": "Check the data and run the analysis as soon as the file is read, so alerts appear without extra clicks.",
+    "submit": "Upload version",
+    "uploading": "Uploading… {percent}",
+    "cancel": "Cancel",
+    "panelTitle": "Refreshing with version {version}",
+    "dismiss": "Dismiss",
+    "steps": {
+      "label": "Progress",
+      "reading": "Reading your file",
+      "checking": "Checking data health",
+      "analysing": "Running the analysis",
+      "finishing": "Checking for alerts"
+    },
+    "compat": {
+      "title": "Compared with version {previous}",
+      "initial": "This is the first version, so there is nothing to compare.",
+      "same": "Same columns and types as version {previous}. Nothing to review.",
+      "added": "{count, plural, one {# new column} other {# new columns}}: {names}. New columns are fine.",
+      "missing": "{count, plural, one {# column is missing} other {# columns are missing}} compared with the previous version: {names}.",
+      "changed": "{count, plural, one {# column changed type or role} other {# columns changed type or role}}:",
+      "changedItem": "{name}: {from} to {to}",
+      "lostRoles": "The file no longer has a {roles} column, so some results may be skipped.",
+      "roleDate": "date",
+      "roleRevenue": "revenue",
+      "shorter": "This file covers a shorter period than the previous version. If it only contains new rows, upload a complete export instead, because this upload replaces the previous data.",
+      "blockedTitle": "This file can't be analysed",
+      "blockedAction": "Upload a corrected file. The previous version is still in use.",
+      "tryAnother": "Upload a corrected file"
+    },
+    "outcome": {
+      "ready": "Version {version} is ready",
+      "readyNoAnalysis": "Version {version} is ready. The analysis was not run; open the dataset and run it when you want results.",
+      "analysisFailed": "Version {version} was read, but the analysis did not finish. Open the dataset to run it again.",
+      "dashboard": "Open the dashboard",
+      "alerts": "{count, plural, one {# new alert} other {# new alerts}}",
+      "noAlerts": "No new alerts: nothing changed enough to need your attention.",
+      "waiting": "Waiting for the analysis to start…"
+    },
+    "list": {
+      "title": "Version history",
+      "intro": "Every upload and cleaning creates a version. Older versions are kept.",
+      "version": "Version",
+      "date": "Date",
+      "source": "Source",
+      "rows": "Rows",
+      "quality": "Quality",
+      "analysis": "Analysis",
+      "current": "Current",
+      "viewing": "Viewing",
+      "empty": "No versions yet.",
+      "loadError": "We couldn't load the version history.",
+      "sources": {
+        "upload": "Upload",
+        "cleaning": "Cleaning"
+      },
+      "alertsRaised": "{count, plural, one {# alert} other {# alerts}}",
+      "statuses": {
+        "none": "Not analysed",
+        "pending": "Queued",
+        "running": "Running",
+        "completed": "Done",
+        "completed_with_warnings": "Done, some steps skipped",
+        "failed": "Failed"
+      }
+    },
+    "viewingOld": "You are viewing version {version}. Version {latest} is the newest.",
+    "backToLatest": "Show the newest version"
   }
 }

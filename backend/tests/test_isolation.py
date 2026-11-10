@@ -25,6 +25,8 @@ DATASET_ROUTES = {
     ("GET", "/api/v1/datasets/{dataset_id}"),
     ("DELETE", "/api/v1/datasets/{dataset_id}"),
     ("POST", "/api/v1/datasets/{dataset_id}/versions"),
+    ("GET", "/api/v1/datasets/{dataset_id}/versions"),
+    ("GET", "/api/v1/datasets/{dataset_id}/versions/{version}/compatibility"),
     ("GET", "/api/v1/datasets/{dataset_id}/sheets"),
     ("GET", "/api/v1/datasets/{dataset_id}/preview"),
     ("GET", "/api/v1/datasets/{dataset_id}/profile"),
@@ -107,7 +109,7 @@ def _call(client: TestClient, method: str, path: str, headers: dict[str, str]) -
         return client.request(method, path, headers=headers, json={"role": "member"}).status_code
     if method == "PATCH" and "/conversations/" in path:
         return client.request(method, path, headers=headers, json={"title": "x"}).status_code
-    if path.endswith("/versions"):
+    if method == "POST" and path.endswith("/versions"):
         files = {"file": ("x.csv", b"a,b\n1,2\n")}
         return client.request(method, path, headers=headers, files=files).status_code
     return client.request(method, path, headers=headers).status_code
@@ -141,7 +143,11 @@ def test_tenant_b_gets_404_for_every_tenant_a_dataset_route(client: TestClient) 
     dataset_id = made["id"]
 
     for method, template in sorted(DATASET_ROUTES):
-        path = template.replace("{dataset_id}", dataset_id).replace("{name}", "region")
+        path = (
+            template.replace("{dataset_id}", dataset_id)
+            .replace("{name}", "region")
+            .replace("{version}", "1")
+        )
         for attacker in (owner_b, admin_b):
             assert _call(client, method, path, attacker.headers) == 404, (method, path)
 

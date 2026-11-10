@@ -28,8 +28,12 @@ export function nameFromFile(fileName: string): string {
 
 interface UploadInput {
   file: File;
-  name: string;
+  name?: string;
   description?: string;
+  /** Extra form fields (for a new version: `analyze`). */
+  fields?: Record<string, string>;
+  /** Defaults to POST /api/v1/datasets. */
+  url?: string;
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
 }
@@ -37,7 +41,7 @@ interface UploadInput {
 function send(input: UploadInput, token: string | null): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/v1/datasets");
+    xhr.open("POST", input.url ?? "/api/v1/datasets");
     xhr.responseType = "json";
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.upload.onprogress = (event) => {
@@ -49,13 +53,14 @@ function send(input: UploadInput, token: string | null): Promise<{ status: numbe
     input.signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     const form = new FormData();
     form.append("file", input.file);
-    form.append("name", input.name);
+    if (input.name) form.append("name", input.name);
+    for (const [key, value] of Object.entries(input.fields ?? {})) form.append(key, value);
     if (input.description) form.append("description", input.description);
     xhr.send(form);
   });
 }
 
-/** Upload a file as a new dataset, reporting progress; refreshes once on 401. */
+/** Upload a file as a new dataset or version, reporting progress; refreshes once on 401. */
 export async function uploadDataset(input: UploadInput): Promise<DatasetDetail> {
   let result = await send(input, getAccessToken());
   if (result.status === 401) {
@@ -69,4 +74,17 @@ export async function uploadDataset(input: UploadInput): Promise<DatasetDetail> 
   }
   if (result.status < 200 || result.status >= 300) throw toApiError(result.status, result.body);
   return result.body as DatasetDetail;
+}
+
+/** Upload a complete new export of an existing dataset; it replaces the data, it is not appended. */
+export function uploadVersion(
+  datasetId: string,
+  input: { file: File; analyze: boolean; onProgress?: (fraction: number) => void },
+): Promise<DatasetDetail> {
+  return uploadDataset({
+    file: input.file,
+    url: `/api/v1/datasets/${datasetId}/versions`,
+    fields: { analyze: String(input.analyze) },
+    onProgress: input.onProgress,
+  });
 }

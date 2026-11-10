@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api, unwrap } from "@/lib/api/client";
+import { uploadVersion } from "@/lib/api/upload";
 import type {
   AiUsage,
   Alert,
@@ -46,6 +47,8 @@ import type {
   SegmentSort,
   SortOrder,
   TimeSeries,
+  VersionCompatibility,
+  VersionSummary,
   WhatIfResult,
 } from "@/lib/api/types";
 import { isReportActive, isRunActive } from "@/lib/api/types";
@@ -55,6 +58,9 @@ const POLL_MS = 1500;
 export const keys = {
   datasets: ["datasets"] as const,
   dataset: (id: string) => ["dataset", id] as const,
+  versions: (id: string) => ["dataset", id, "versions"] as const,
+  compatibility: (id: string, version: number) =>
+    ["dataset", id, "versions", version, "compatibility"] as const,
   lastRun: (id: string) => ["dataset", id, "last-run"] as const,
   versionData: (id: string, version: number, what: string) =>
     ["dataset", id, "v", version, what] as const,
@@ -103,6 +109,61 @@ export function useDataset(id: string) {
         api.GET("/api/v1/datasets/{dataset_id}", { params: { path: { dataset_id: id } } }),
       ) as Promise<DatasetDetail>,
     refetchInterval: (query) => (isVersionBusy(query.state.data?.latest_version) ? POLL_MS : false),
+  });
+}
+
+/** Version history of a dataset; polls while a version or its analysis is still moving. */
+export function useVersions(id: string) {
+  return useQuery({
+    queryKey: keys.versions(id),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/datasets/{dataset_id}/versions", {
+          params: { path: { dataset_id: id } },
+        }),
+      ) as Promise<VersionSummary[]>,
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (v) =>
+          v.status === "uploaded" ||
+          v.status === "processing" ||
+          v.profile_status === "pending" ||
+          v.profile_status === "running" ||
+          v.analysis_status === "pending" ||
+          v.analysis_status === "running",
+      )
+        ? POLL_MS
+        : false,
+  });
+}
+
+/** How a version compares with the one before it; polls until it has been profiled. */
+export function useVersionCompatibility(id: string, version: number, enabled = true) {
+  return useQuery({
+    queryKey: keys.compatibility(id, version),
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/datasets/{dataset_id}/versions/{version}/compatibility", {
+          params: { path: { dataset_id: id, version } },
+        }),
+      ) as Promise<VersionCompatibility>,
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? POLL_MS : false),
+  });
+}
+
+/** Upload a complete new export of a dataset as its next version. */
+export function useUploadVersion(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { file: File; analyze: boolean; onProgress?: (f: number) => void }) =>
+      uploadVersion(id, input),
+    onSuccess: (detail) => {
+      client.setQueryData(keys.dataset(id), detail);
+      void client.invalidateQueries({ queryKey: keys.versions(id) });
+      void client.invalidateQueries({ queryKey: keys.datasets });
+      void client.invalidateQueries({ queryKey: keys.lastRun(id) });
+    },
   });
 }
 
@@ -166,7 +227,7 @@ export function usePreview(id: string, version: number, enabled: boolean) {
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/datasets/{dataset_id}/preview", {
-          params: { path: { dataset_id: id }, query: { rows: 50 } },
+          params: { path: { dataset_id: id }, query: { rows: 50, version } },
         }),
       ) as Promise<Preview>,
   });

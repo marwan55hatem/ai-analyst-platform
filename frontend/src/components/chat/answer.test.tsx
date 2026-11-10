@@ -36,12 +36,15 @@ describe("Answer", () => {
   });
 
   it("copies the answer without its caveat lines", async () => {
-    const write = vi.fn().mockResolvedValue(undefined);
-    userEvent.setup();
-    Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
+    // One user-event instance owns the clipboard: setup() installs its own stub on
+    // navigator.clipboard, so we read what was written instead of replacing the stub (replacing
+    // it and mixing the direct userEvent API with an instance made the result depend on timing).
+    const user = userEvent.setup();
     show(turn({ status: "done", answer: "Plain answer." }));
-    await userEvent.click(await screen.findByRole("button", { name: "Copy" }));
-    expect(write).toHaveBeenCalledWith("Plain answer.");
+    await user.click(await screen.findByRole("button", { name: "Copy" }, { timeout: 5000 }));
+    // The label flips only after writeText resolved, so waiting for it removes the race.
+    expect(await screen.findByRole("button", { name: "Copied" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await navigator.clipboard.readText()).toBe("Plain answer.");
   });
 
   it("offers no Copy until there is text", () => {

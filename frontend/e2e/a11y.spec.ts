@@ -79,6 +79,22 @@ test("every page passes axe in both languages, themes and widths", async ({ brow
         await expect(page).toHaveURL(/\/datasets$/);
         for (const url of appPages) await check(url);
 
+        // Step 12c: the dataset page with the "Upload new data" dialog open, with a file chosen.
+        await page.goto(detail);
+        await page.waitForLoadState("networkidle");
+        await page.getByTestId("new-version-open").click();
+        const versionDialog = page.getByRole("dialog", { name: msg(locale, "versions.dialogTitle") });
+        await expect(versionDialog).toBeVisible();
+        await expectNoAxeViolations(page, `${locale}-${scheme}-${width}_detail-dialog`);
+        await versionDialog.getByTestId("new-version-file").setInputFiles(SAMPLE_MESSY);
+        await expect(versionDialog.getByTestId("new-version-name")).toBeVisible();
+        await expectNoAxeViolations(page, `${locale}-${scheme}-${width}_detail-dialog-file`);
+        const box = await versionDialog.boundingBox();
+        expect(box!.x, `dialog starts inside the viewport at ${width}px`).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width, `dialog ends inside the viewport at ${width}px`).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Escape");
+        await expect(versionDialog).toBeHidden();
+
         // The chat with answers, evidence open, and the conversation panel on a phone.
         await check(`/chat${conversation}`);
         for (const button of await page.getByRole("button", { name: msg(locale, "chat.how.title") }).all()) {

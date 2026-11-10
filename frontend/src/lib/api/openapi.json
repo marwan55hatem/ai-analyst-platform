@@ -712,6 +712,12 @@
       },
       "Body_create_version_api_v1_datasets__dataset_id__versions_post": {
         "properties": {
+          "analyze": {
+            "default": true,
+            "description": "Run the analysis automatically once profiling is done.",
+            "title": "Analyze",
+            "type": "boolean"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
@@ -1212,6 +1218,40 @@
         "title": "CleaningPlanOut",
         "type": "object"
       },
+      "ColumnChange": {
+        "description": "A column whose inferred type or role differs from the previous version.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "new_role": {
+            "title": "New Role",
+            "type": "string"
+          },
+          "new_type": {
+            "title": "New Type",
+            "type": "string"
+          },
+          "previous_role": {
+            "title": "Previous Role",
+            "type": "string"
+          },
+          "previous_type": {
+            "title": "Previous Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "previous_type",
+          "new_type",
+          "previous_role",
+          "new_role"
+        ],
+        "title": "ColumnChange",
+        "type": "object"
+      },
       "ColumnMapping": {
         "description": "Original header and the normalised column name used in SQL.",
         "properties": {
@@ -1279,6 +1319,141 @@
           "stats"
         ],
         "title": "ColumnProfileOut",
+        "type": "object"
+      },
+      "CompatibilityOut": {
+        "description": "How a new version compares with the previous one (never blocks on added columns).",
+        "properties": {
+          "added": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "blocking": {
+            "default": false,
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "blocking_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocking Reason"
+          },
+          "changed": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnChange"
+            },
+            "title": "Changed",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "missing_roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Roles",
+            "type": "array"
+          },
+          "new_first_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New First Date"
+          },
+          "new_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Rows"
+          },
+          "previous_first_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous First Date"
+          },
+          "previous_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Rows"
+          },
+          "previous_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Version"
+          },
+          "shorter_period": {
+            "default": false,
+            "title": "Shorter Period",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "previous_version",
+          "status",
+          "added",
+          "missing",
+          "changed",
+          "missing_roles",
+          "shorter_period",
+          "previous_rows",
+          "new_rows",
+          "previous_first_date",
+          "new_first_date",
+          "blocking",
+          "blocking_reason"
+        ],
+        "title": "CompatibilityOut",
         "type": "object"
       },
       "ConversationCreate": {
@@ -3821,6 +3996,103 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VersionSummary": {
+        "description": "One row of a dataset's version history.",
+        "properties": {
+          "alerts_raised": {
+            "title": "Alerts Raised",
+            "type": "integer"
+          },
+          "analysis_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Status"
+          },
+          "auto_analyze": {
+            "title": "Auto Analyze",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_current": {
+            "title": "Is Current",
+            "type": "boolean"
+          },
+          "original_filename": {
+            "title": "Original Filename",
+            "type": "string"
+          },
+          "profile_status": {
+            "title": "Profile Status",
+            "type": "string"
+          },
+          "quality_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Score"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "created_at",
+          "source",
+          "original_filename",
+          "row_count",
+          "quality_score",
+          "status",
+          "profile_status",
+          "auto_analyze",
+          "is_current",
+          "analysis_status",
+          "alerts_raised"
+        ],
+        "title": "VersionSummary",
         "type": "object"
       },
       "WhatIfOut": {
@@ -7372,6 +7644,25 @@
               "title": "Rows",
               "type": "integer"
             }
+          },
+          {
+            "description": "Version number; default: current",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Version number; default: current",
+              "title": "Version"
+            }
           }
         ],
         "responses": {
@@ -7431,7 +7722,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "First rows and the column list of the current version",
+        "summary": "First rows and the column list of a version (default: the current one)",
         "tags": [
           "datasets"
         ]
@@ -8049,8 +8340,79 @@
       }
     },
     "/api/v1/datasets/{dataset_id}/versions": {
+      "get": {
+        "description": "Return every version of the dataset, newest first.",
+        "operationId": "list_versions_api_v1_datasets__dataset_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VersionSummary"
+                  },
+                  "title": "Response List Versions Api V1 Datasets  Dataset Id  Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Version history with quality score and latest analysis status",
+        "tags": [
+          "datasets"
+        ]
+      },
       "post": {
-        "description": "Add a version; the current version stays active until the new one is ready.",
+        "description": "Add a version that REPLACES the data (no append); the current one stays until it is ready.",
         "operationId": "create_version_api_v1_datasets__dataset_id__versions_post",
         "parameters": [
           {
@@ -8142,6 +8504,84 @@
           }
         ],
         "summary": "Upload a new version of a dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/versions/{version}/compatibility": {
+      "get": {
+        "description": "Return `pending` until the version is profiled, then the comparison.",
+        "operationId": "version_compatibility_api_v1_datasets__dataset_id__versions__version__compatibility_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompatibilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Compare a version with the previous one (columns, types, roles, period)",
         "tags": [
           "datasets"
         ]

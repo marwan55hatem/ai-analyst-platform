@@ -101,7 +101,9 @@ compare that JSON with the PDF, the dashboard and the planted answer keys.
   - Linux (Docker and CI): `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`.
   - Windows (local `make test`): MSYS2 Pango (`pacman -S mingw-w64-ucrt-x86_64-pango`).
     `tests/conftest.py` points `WEASYPRINT_DLL_DIRECTORIES` at `C:\msys64\ucrt64\bin` when that
-    folder exists.
+    folder exists. When Pango cannot be loaded, the tests in `test_reports.py` are skipped with the
+    reason "WeasyPrint cannot load Pango"; Docker and CI install the Linux packages automatically,
+    so the tests always run there.
 
 ## 2. Alerts
 
@@ -124,6 +126,9 @@ The summary exists because a later run of the same version deletes the earlier r
 Without it, the comparison would have nothing to read.
 
 Alert failures are logged and never fail the run.
+
+Cleaning-derived versions (`source_version_id` set) never raise alerts: a cleaned copy of earlier
+data is not new data. Their run summary is still stored. See docs/dataset-versions.md.
 
 ### Rules
 

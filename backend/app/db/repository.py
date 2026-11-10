@@ -226,6 +226,17 @@ class AnalysisRunRepository(TenantRepository[AnalysisRun]):
             stmt = stmt.where(DatasetVersion.version == version)
         return [(run, number, int(n)) for run, number, n in self.session.execute(stmt)]
 
+    def for_versions(self, version_ids: list[uuid.UUID]) -> list[AnalysisRun]:
+        """Return every run of the given versions, newest first."""
+        if not version_ids:
+            return []
+        stmt = (
+            self._select()
+            .where(AnalysisRun.dataset_version_id.in_(version_ids))
+            .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
+        )
+        return list(self.session.scalars(stmt))
+
     def previous_with_summary(self, dataset_id: uuid.UUID, run: AnalysisRun) -> AnalysisRun | None:
         """Return the newest finished run of the dataset before `run` that kept a summary."""
         stmt = (
@@ -630,6 +641,17 @@ class AlertRepository(TenantRepository[Alert]):
             stmt.order_by(Alert.created_at.desc(), Alert.id).limit(limit).offset(offset)
         )
         return list(rows), int(total or 0)
+
+    def counts_by_run(self, run_ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Return how many alerts each run raised."""
+        if not run_ids:
+            return {}
+        stmt = (
+            select(Alert.run_id, func.count(Alert.id))
+            .where(Alert.tenant_id == self.tenant_id, Alert.run_id.in_(run_ids))
+            .group_by(Alert.run_id)
+        )
+        return {rid: int(n) for rid, n in self.session.execute(stmt) if rid is not None}
 
     def unread_count(self) -> int:
         """Return how many alerts are unread."""

@@ -82,3 +82,52 @@ class PreviewOut(BaseModel):
     rows: list[list[Any]]
     row_count: int
     total_rows: int | None
+
+
+class ColumnChange(BaseModel):
+    """A column whose inferred type or role differs from the previous version."""
+
+    name: str
+    previous_type: str
+    new_type: str
+    previous_role: str
+    new_role: str
+
+
+class CompatibilityOut(BaseModel):
+    """How a new version compares with the previous one (never blocks on added columns)."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    version: int
+    previous_version: int | None
+    status: str  # pending | initial | compatible | warnings | blocked
+    added: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    changed: list[ColumnChange] = Field(default_factory=list)
+    missing_roles: list[str] = Field(default_factory=list)
+    shorter_period: bool = False
+    previous_rows: int | None = None
+    new_rows: int | None = None
+    previous_first_date: str | None = None
+    new_first_date: str | None = None
+    blocking: bool = False
+    blocking_reason: str | None = None
+
+
+class VersionSummary(BaseModel):
+    """One row of a dataset's version history."""
+
+    id: uuid.UUID
+    version: int
+    created_at: datetime
+    source: str  # upload | cleaning
+    original_filename: str
+    row_count: int | None
+    quality_score: int | None
+    status: str
+    profile_status: str
+    auto_analyze: bool
+    is_current: bool
+    analysis_status: str | None
+    alerts_raised: int
