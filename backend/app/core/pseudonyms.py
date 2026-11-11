@@ -32,7 +32,16 @@ PREFIX = "CUST-"
 SHORT_LENGTH = 8  # 40 bits
 LONG_LENGTH = 10  # 50 bits, for the rare codes that collide inside one dataset
 CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-CODE_PATTERN = re.compile(r"CUST-[0-9A-HJKMNP-TV-Z]{1,10}\b")
+# Models sometimes write the hyphen as a non-breaking hyphen, an en dash or a minus sign.
+DASHES = "-‐‑‒–—−"
+CODE_PATTERN = re.compile(rf"CUST[{DASHES}][0-9A-HJKMNP-TV-Z]{{1,10}}\b")
+
+
+def canonical_code(text: str) -> str:
+    """Return a code as the map stores it (`CUST-` with a plain hyphen)."""
+    return PREFIX + text[len(PREFIX) :] if len(text) > len(PREFIX) else text
+
+
 LEGACY_PATTERN = re.compile(r"^cust_[0-9a-f]{16}$")
 CACHE_SIZE = 8
 _cache: "OrderedDict[tuple[str, str, str, str], PseudonymMap]" = OrderedDict()

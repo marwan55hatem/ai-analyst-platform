@@ -7,10 +7,10 @@ codes; people see real ids in streamed text, stored answers, evidence and export
 import re
 from typing import Any
 
-from app.core.pseudonyms import CODE_PATTERN, PseudonymMap, normalise
+from app.core.pseudonyms import CODE_PATTERN, DASHES, PseudonymMap, canonical_code, normalise
 
 # A trailing piece of text that may still grow into a code in the next delta.
-_PARTIAL = re.compile(r"C(?:U(?:S(?:T(?:-[0-9A-HJKMNP-TV-Z]{0,10})?)?)?)?$")
+_PARTIAL = re.compile(rf"C(?:U(?:S(?:T(?:[{DASHES}][0-9A-HJKMNP-TV-Z]{{0,10}})?)?)?)?$")
 _PIECE = re.compile(r"[^\s/#:=,;|]+")
 _EDGE_PUNCTUATION = "?.,;:!()[]{}\"'«»،؟"
 MAX_WORDS_IN_ID = 3
@@ -60,9 +60,9 @@ def display_map_for(
 
 def demask_text(mapping: PseudonymMap | None, text: str) -> str:
     """Replace every known code in `text` by its real id; unknown codes stay as they are."""
-    if mapping is None or not text or "CUST-" not in text:
+    if mapping is None or not text or "CUST" not in text:
         return text
-    return CODE_PATTERN.sub(lambda m: mapping.shown(m.group(0)) or m.group(0), text)
+    return CODE_PATTERN.sub(lambda m: mapping.shown(canonical_code(m.group(0))) or m.group(0), text)
 
 
 def demask_evidence(mapping: PseudonymMap | None, value: Any) -> Any:

@@ -109,3 +109,13 @@ def test_ids_inside_common_typed_forms_are_found() -> None:
         f"customer:{c2} and id={N1}"
     )
     assert pseudonymise_question(MAP, "is #7003 active") == f"is #{N1} active"
+
+
+def test_codes_written_with_other_hyphens_are_mapped() -> None:
+    """Live Groq finding: the model writes CUST‑XXXX with a non-breaking hyphen (U+2011)."""
+    for dash in ("‐", "‑", "‒", "–", "—", "−"):
+        assert demask_text(MAP, f"Top is {C1.replace('-', dash)}.") == "Top is C-001."
+    demasker = StreamDemasker(MAP)
+    odd = C1.replace("-", "‑")
+    shown = demasker.feed(f"Top {odd[:4]}") + demasker.feed(odd[4:7]) + demasker.feed(odd[7:])
+    assert shown + demasker.flush() == "Top C-001"
