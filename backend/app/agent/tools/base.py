@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.pseudonyms import PseudonymMap, load_pseudonym_map
 from app.llm.types import ToolSpec
 from app.models.agent import BusinessProfile
 from app.models.dataset import Dataset, DatasetVersion
@@ -57,6 +58,28 @@ class AgentContext:
     profile: BusinessProfile | None
     settings: Settings
     sandbox: Any = None  # SandboxClient; Any keeps tests free to pass a fake
+    _pseudonyms: Any = field(default=None, repr=False)
+    _pseudonyms_loaded: bool = field(default=False, repr=False)
+
+    def pseudonyms(self) -> "PseudonymMap | None":
+        """Return this version's customer-code map (built once per turn; None: no customer id)."""
+        if not self._pseudonyms_loaded:
+            self._pseudonyms = load_pseudonym_map(
+                self.db, self.tenant_id, self.version, self.settings
+            )
+            self._pseudonyms_loaded = True
+        mapping: PseudonymMap | None = self._pseudonyms
+        return mapping
+
+    def display_map(self) -> "PseudonymMap | None":
+        """Return the map people see through (real ids, or the pages' pseudonyms if hidden)."""
+        from app.agent.demask import display_map_for
+
+        if self.pseudonyms() is None:
+            return None
+        return display_map_for(
+            self.db, self.tenant_id, self.version, self.settings, allow_pii=self.allow_pii
+        )
 
     @property
     def allow_pii(self) -> bool:

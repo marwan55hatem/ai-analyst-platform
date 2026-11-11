@@ -15,6 +15,7 @@ from app.agent.query_shape import (
 )
 from app.agent.tools.base import AgentContext, Tool, ToolArgs, ToolResult, fit_rows
 from app.core.errors import AppError
+from app.core.pseudonyms import map_file_path
 from app.db.repository import ColumnProfileRepository
 from app.services.analysis import capabilities_payload
 from app.services.query import QueryResult, SafeQueryService, validate_sql
@@ -46,7 +47,17 @@ class ChartArgs(SqlArgs):
 
 def _policy(ctx: AgentContext) -> PiiPolicy:
     profiles = ColumnProfileRepository(ctx.db, ctx.tenant_id).for_version(ctx.version.id)
-    return PiiPolicy.for_profiles(profiles, ctx.allow_pii)
+    mapping = ctx.pseudonyms()
+    return PiiPolicy.for_profiles(profiles, ctx.allow_pii, mapping.column if mapping else None)
+
+
+def _coded_column(ctx: AgentContext) -> tuple[str, str] | None:
+    """Return (customer id column, map file) so SQL only ever sees customer codes."""
+    mapping = ctx.pseudonyms()
+    if mapping is None or mapping.column is None:
+        return None
+    path = map_file_path(ctx.db, ctx.tenant_id, ctx.version, ctx.settings)
+    return None if path is None else (mapping.column, path)
 
 
 def dataset_overview(ctx: AgentContext, _: NoArgs) -> ToolResult:
@@ -97,7 +108,12 @@ def _run_query(ctx: AgentContext, sql: str) -> QueryResult | ToolResult:
         return ToolResult.error(message, code="personal_data_blocked", sql=sql, columns=blocked)
     try:
         result = SafeQueryService(ctx.db).run(
-            ctx.tenant_id, ctx.version.id, clean, row_limit=SQL_ROW_CAP, timeout_s=SQL_TIMEOUT_S
+            ctx.tenant_id,
+            ctx.version.id,
+            clean,
+            row_limit=SQL_ROW_CAP,
+            timeout_s=SQL_TIMEOUT_S,
+            pseudonymise=_coded_column(ctx),
         )
     except AppError as exc:
         return ToolResult.error(exc.message, code=exc.code, sql=sql)

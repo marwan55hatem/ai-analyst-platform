@@ -135,12 +135,12 @@ the client and the database.
 | --- | --- | --- | --- |
 | get_dataset_overview | – | column profiles, quality score, capabilities | columns, roles, PII flags |
 | run_sql | sql (≤ 20 000 chars) | SafeQueryService, 1000-row cap, 10 s timeout, PII guard | SQL, columns, rows (≤ 1000), truncated |
-| run_python | code (≤ 20 000 chars) | sandbox, role columns only, PII dropped or pseudonymised | code, stdout, result, sample note |
+| run_python | code (≤ 20 000 chars) | sandbox, role columns only, PII dropped, customer id as its code | code, stdout, result, sample note |
 | get_insights | type?, module?, limit ≤ 20 | insights of the latest analysis run | insight ids, evidence SQL |
 | get_forecast | metric, horizon ≤ 24 | stored forecast; else a forecast job polled for ≤ 60 s | model, MASE, ranges |
 | get_anomalies | – | stored anomaly findings | events (orders and average order value against a typical day, with ratios), contributors |
 | get_segments | limit ≤ 20 | stored RFM segments and groups | segment sizes, method |
-| get_churn_risk | top_n ≤ 50 | stored churn scores (pseudonyms when the id is PII) | AUC, bands |
+| get_churn_risk | top_n ≤ 50 | stored churn scores (customer ids as codes) | AUC, bands |
 | explain_drivers | – | stored driver results | SHAP ranking, wording cap |
 | what_if | scenarios (1-3; lever, change_pct ±30, scope, target) | what-if engine | elasticity, ranges, SQL |
 | make_chart | sql, title | SafeQueryService → chart spec | SQL, rows |
@@ -194,8 +194,8 @@ against ground truth.
   Docker network after a spike showed it works on Docker Desktop for Windows (named volumes live in
   the Linux VM) and on Linux; CI proves it with the `sandbox-check` service.
 - Data handoff: the api checks the dataset version belongs to the tenant, loads only the role
-  columns with DuckDB, drops PII columns (a PII `customer_id` is replaced by its pseudonym) unless
-  the tenant opted in, and sends CSV text in the request. Above `SANDBOX_MAX_UPLOAD_MB` a seeded
+  columns with DuckDB, drops PII columns unless the tenant opted in, always replaces the
+  `customer_id` column by its customer code (see Customer codes below), and sends CSV text in the request. Above `SANDBOX_MAX_UPLOAD_MB` a seeded
   sample is sent and the result carries a warning.
 - Per job: a temp folder under the 64 MB `/tmp` tmpfs, a child `python -I runner.py` in its own
   process group with rlimits (address space 400 MB, CPU 16 s, 48 processes, 32 MB files, 64 open
@@ -231,7 +231,43 @@ against ground truth.
 
 PII: columns flagged as personal data are blocked from `run_sql` results (allowed only inside
 `COUNT`/`COUNT DISTINCT`) and from `run_python` data unless the company profile opts in
-(`allow_pii`, default off). Per-customer results use the existing pseudonym rule.
+(`allow_pii`, default off). The customer id column is an exception: the model sees it only as
+customer codes (below), so it is readable in SQL and Python whether or not it is flagged.
+
+Customer codes (Step 14). Values of the column with the `customer_id` role never reach the model,
+whatever the personal-data settings. The model sees `CUST-` plus 8 Crockford base-32 characters
+(40 bits of `HMAC-SHA256(PSEUDONYM_SECRET, tenant|dataset|value)`); the rare codes that collide
+inside one dataset get 10 characters. A code is stable for one dataset across its versions,
+different in every other tenant or dataset, and cannot be reversed without the key.
+
+- Where codes are made (`app/core/pseudonyms.py`): per dataset version, from the distinct values in
+  its parquet file, cached as `pseudonyms-<key id>.parquet` next to it in tenant storage and in an
+  in-process LRU. `run_sql` queries a table whose customer column is already the code (a join to
+  that file), so `WHERE customer_id = 'CUST-…'` works and counts and joins are unchanged.
+  `run_python` gets codes in its CSV. `get_segments` and `get_churn_risk` turn the stored key (the
+  raw id, or the older `cust_` pseudonym) into the code at the tool boundary.
+- Questions: the question is stored as typed; the model gets it (and replayed history and the
+  summary input) with every typed customer id replaced by its code (`app/agent/demask.py`): any
+  case, 1 to 3 words, Arabic-Indic digits, the `cust_` key a page shows, and pieces such as
+  `#7003`, `id=7003` or `C-001/C-002`. A purely numeric id is replaced only after a customer cue
+  (`#`, `=`, `:`, "customer", "client", "id", "عميل" and similar) or next to an id already
+  replaced, so amounts, years and counts in a question stay numbers. Stopped (partial) answers
+  are stored as shown, with real ids, so they are left out of the summary input as they are from
+  the replayed history.
+- The map file is named by key fingerprint and column (`pseudonyms-<key>-<column>.parquet`), so a
+  role change or key rotation gets a new map; it is written atomically and rebuilt if unreadable.
+- Display (server side only, never sent to the model): streamed tokens (a code split across deltas
+  is held back until complete), tool-call arguments, evidence, charts, caveats, the final answer
+  and stored messages are shown with the real id. When the customer column is flagged as personal
+  data and the company has not opted in, people see the same `cust_` pseudonym the segments and
+  churn pages show, not the value. Stored answers keep the codes, so replayed history stays coded.
+- The verifier ignores digits inside codes (no word boundary), so codes never count as numbers.
+- Key rotation: `PSEUDONYM_SECRET` is required in production (32+ characters, not `change-me`;
+  api, worker and beat refuse to start). Changing it changes every code: the map files are keyed
+  by a key fingerprint, so new ones are built on the next use; old conversations keep the old codes
+  in stored answers and show them as codes (the old map is no longer used); the `cust_` keys
+  stored by segments and churn change only when the analysis re-runs, and until then they show
+  as `CUST-UNKNOWN` to the model. Rotate only when the key may have leaked, then re-run analyses.
 
 Third-party cloud: with `LLM_PROVIDER=groq`, everything the model sees leaves our infrastructure for
 Groq in the United States. The rules are provider-independent and enforced before the wire;
@@ -362,7 +398,8 @@ Integration (FakeLLMClient / ScriptedAnalyst, real Postgres)
 - Tool argument validation (bad JSON, extra fields, out of range); max iterations.
 - Budget: tiny budget → `budget_exceeded`; concurrent reservations cannot exceed the budget.
 - Verifier: an answer with an invented number → caveat lists it.
-- PII: blocked in run_sql and run_python, allowed with opt-in, pseudonyms for per-customer ids.
+- PII: blocked in run_sql and run_python, allowed with opt-in; customer ids reach the model only as
+  codes (`test_pseudonym_wire.py`: no real id in any provider request body of a full turn).
 - Conversation controls: rename, delete by creator / owner / admin, 403 for other members.
 - Abuse limits: rate limit 429, third concurrent stream 429, slot released after errors.
 

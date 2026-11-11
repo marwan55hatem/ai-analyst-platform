@@ -408,10 +408,10 @@
       "sent": {
         "instructions": "Our instructions to the model",
         "profile": "Your company profile",
-        "question": "Your question as typed, the conversation so far and its summary",
+        "question": "Your question, the conversation so far and its summary (customer IDs you type are replaced by their codes)",
         "columns": "Column names and what each column means",
         "results": "Results of the analyst's queries, including up to 50 rows from columns not flagged as personal data",
-        "customerIds": "Customer IDs as they are, unless that column is flagged as personal data",
+        "customerIds": "Customer IDs, replaced by a stable code such as CUST-7F3K9QAB. The real IDs stay on our servers; you still see them here.",
         "samples": "Masked samples of unclear columns, to work out what they mean"
       },
       "notTotals": "This isn't limited to totals: individual rows can reach the model.",

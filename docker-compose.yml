@@ -172,6 +172,8 @@ services:
       retries: 10
       start_period: 5s
     mem_limit: 512m
+    # without this Docker adds as much swap again, so the real limit would be 1 GB
+    memswap_limit: 512m
     cpus: 1.0
     pids_limit: 64
 
@@ -205,6 +207,44 @@ services:
     volumes:
       - ./sandbox/container_check.py:/check/container_check.py:ro
     command: ["python", "-I", "/check/container_check.py"]
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+
+  # Isolation suite, all layers: posts jobs to the running sandbox over its socket (--profile ci).
+  sandbox-isolation-check:
+    image: python:3.12-slim
+    profiles: ["ci"]
+    network_mode: none
+    read_only: true
+    user: "1000:1000"
+    volumes:
+      - sandbox-ipc:/ipc
+      - ./sandbox/isolation_check.py:/check/isolation_check.py:ro
+    command: ["python", "-I", "/check/isolation_check.py", "--socket"]
+    depends_on:
+      sandbox:
+        condition: service_healthy
+
+  # Isolation suite with the static check switched off: the sandbox image and the sandbox
+  # service's runtime flags, calling the executor directly (--profile ci).
+  sandbox-isolation-direct:
+    image: ai-analyst-sandbox:dev
+    profiles: ["ci"]
+    network_mode: none
+    read_only: true
+    user: "10001:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ./sandbox/isolation_check.py:/check/isolation_check.py:ro
+    environment:
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-15}
+      SANDBOX_CHILD_MEMORY_MB: ${SANDBOX_CHILD_MEMORY_MB:-400}
+    command: ["python", "-I", "/check/isolation_check.py", "--direct"]
     mem_limit: 512m
     memswap_limit: 512m
     cpus: 1.0

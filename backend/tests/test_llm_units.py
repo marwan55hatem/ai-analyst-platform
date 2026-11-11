@@ -405,6 +405,8 @@ def test_create_app_refuses_fake_in_production(monkeypatch: pytest.MonkeyPatch) 
     from app.main import create_app
 
     monkeypatch.setattr(get_settings(), "app_env", "production")
+    # a strong pseudonym key, so only the fake model is wrong
+    monkeypatch.setattr(get_settings(), "pseudonym_secret", "p" * 32)
     with pytest.raises(RuntimeError):
         create_app()
 

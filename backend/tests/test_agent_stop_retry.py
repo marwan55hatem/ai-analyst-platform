@@ -325,3 +325,20 @@ def test_settings_cap_still_counts_user_streams(
     # The conversation's slot was not left taken by the refused request.
     token = get_stream_slots().acquire(uuid.UUID(conversation_id), 1)
     get_stream_slots().release(uuid.UUID(conversation_id), token)
+
+
+def test_summary_input_never_carries_real_customer_ids() -> None:
+    """Review finding: stopped answers are stored as shown (real ids); the summary must code them."""
+    from app.agent.service import summary_lines
+    from app.core.pseudonyms import PseudonymMap
+
+    mapping = PseudonymMap.build(b"k" * 32, "t", "d", ["C-001"], column="customer_id")
+    code = mapping.to_pseudonym("C-001")
+    rows = [
+        Message(role="user", content="How is C-001 doing?", evidence={}),
+        Message(role="assistant", content="C-001 bought", evidence={"partial": "stopped"}),
+        Message(role="assistant", content=f"{code} is fine", evidence={}),
+    ]
+    text = "\n".join(summary_lines(rows, mapping))
+    assert "C-001" not in text and code in text
+    assert "bought" not in text  # partial answers are left out, as in the history

@@ -141,10 +141,16 @@ class Settings(BaseSettings):
         return {**preset, **explicit}
 
     def ensure_production_safe(self) -> None:
-        """Refuse to run with the placeholder or a short JWT secret."""
+        """Refuse a placeholder or short JWT secret, and a weak pseudonym key in production."""
         if self.jwt_secret == "change-me" or len(self.jwt_secret) < 32:
             raise ValueError(
                 "JWT_SECRET must be set to a random value of at least 32 characters (see .env)"
+            )
+        weak = self.pseudonym_secret in ("", "change-me") or len(self.pseudonym_secret) < 32
+        if self.app_env == "production" and weak:
+            raise ValueError(
+                "PSEUDONYM_SECRET must be set to its own random value of at least 32 characters "
+                "in production (see docs/agent-design.md, key rotation)"
             )
 
     @property

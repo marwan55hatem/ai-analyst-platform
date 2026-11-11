@@ -49,6 +49,19 @@ jobs:
       - run: docker compose build sandbox
       - run: docker compose --profile ci run --rm sandbox-check
       - run: docker compose --profile ci run --rm sandbox-container-check
+      # One check per documented guarantee, through every layer and with the static check off;
+      # the tables are kept as an artifact (copied into docs/security.md)
+      # shell: bash adds pipefail, so a failing check is not hidden by tee
+      - shell: bash
+        run: |
+          docker compose --profile ci run --rm sandbox-isolation-check | tee sandbox-isolation.md
+          docker compose --profile ci run --rm sandbox-isolation-direct | tee -a sandbox-isolation.md
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-isolation
+          path: sandbox-isolation.md
+          if-no-files-found: ignore
       - if: always()
         run: docker compose --profile ci down -v
 

@@ -94,7 +94,8 @@ describe("PrivacyCard", () => {
     backend({});
     renderWithProviders(<PrivacyCard />);
     expect(await screen.findByText(/up to 50 rows/)).toBeInTheDocument();
-    expect(screen.getByText(/Customer IDs as they are/)).toBeInTheDocument();
+    expect(screen.getByText(/replaced by a stable code such as CUST-7F3K9QAB/)).toBeInTheDocument();
+    expect(screen.getByText(/customer IDs you type are replaced by their codes/)).toBeInTheDocument();
     expect(screen.getByText(/isn't limited to totals/)).toBeInTheDocument();
   });
 

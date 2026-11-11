@@ -17,6 +17,7 @@ from app.agent import events
 from app.agent.budget import BudgetExceededError, TokenBudget
 from app.agent.confidence import answer_confidence
 from app.agent.context import is_replayable, prompt_estimate, shrink_tool_results
+from app.agent.demask import StreamDemasker, demask_evidence, demask_text
 from app.agent.events import AgentEvent
 from app.agent.tools import (
     TOOLS_BY_NAME,
@@ -29,6 +30,7 @@ from app.agent.tools import (
 from app.agent.untrusted import find_injection, wrap_tool_output
 from app.agent.verifier import caveat_text, count_checked_numbers, untraced_numbers
 from app.core.config import Settings
+from app.core.pseudonyms import PseudonymMap
 from app.llm.base import LLMClient, LLMError, LLMRequestTooLargeError, LLMToolCallError
 from app.llm.pricing import approximate_cost_usd
 from app.llm.types import (
@@ -121,6 +123,16 @@ class AgentLoop:
         self._repaired = False
         self._trimmed = False
         self._shown = ""  # text of the model turn in progress, already sent to the user
+        self._display: PseudonymMap | None = None
+        self._display_loaded = False
+
+    @property
+    def display(self) -> PseudonymMap | None:
+        """Return the map people see through; the model only ever gets customer codes."""
+        if not self._display_loaded:
+            self._display = self.ctx.display_map()
+            self._display_loaded = True
+        return self._display
 
     def run(
         self, system: str, history: list[ChatMessage], question: str
@@ -160,13 +172,16 @@ class AgentLoop:
                         content=wrapped,
                         tool_call_id=call.id,
                         tool_name=call.name,
-                        evidence={
-                            "ok": result.ok,
-                            "summary": result.summary,
-                            **result.evidence,
-                            **({"chart": result.chart} if result.chart else {}),
-                        },
-                        caveats=result.caveats,
+                        evidence=demask_evidence(
+                            self.display,
+                            {
+                                "ok": result.ok,
+                                "summary": result.summary,
+                                **result.evidence,
+                                **({"chart": result.chart} if result.chart else {}),
+                            },
+                        ),
+                        caveats=demask_evidence(self.display, result.caveats),
                     )
                 )
             _forget_bad_calls(messages, bad_calls, sorted(by_name))
@@ -223,14 +238,17 @@ class AgentLoop:
             return None
         completion: Completion | None = None
         shown = False
+        demasker = StreamDemasker(self.display)
         stream = self.llm.chat(messages, specs, model=self.model)
         try:
             for event in stream:
                 if isinstance(event, TextDelta):
                     if event.text:
                         shown = True
-                        self._shown += event.text
-                        yield events.token(event.text)
+                        visible = demasker.feed(event.text)
+                        if visible:
+                            self._shown += visible
+                            yield events.token(visible)
                 elif isinstance(event, RateLimitWait):
                     yield events.rate_limited(event.retry_in_s)
                 else:
@@ -268,6 +286,10 @@ class AgentLoop:
             raise
         finally:
             getattr(stream, "close", lambda: None)()
+        rest = demasker.flush()
+        if rest:
+            self._shown += rest
+            yield events.token(rest)
         if completion is None:
             self.budget.settle(reserved, 0)
             self.outcome.error = "provider_error"
@@ -323,7 +345,11 @@ class AgentLoop:
             shown_args: Any = json.loads(call.arguments or "{}")
         except ValueError:
             shown_args = call.arguments[:2000]
-        yield AgentEvent("tool_call", {"id": call.id, "name": call.name, "arguments": shown_args})
+        show = self.display
+        yield AgentEvent(
+            "tool_call",
+            {"id": call.id, "name": call.name, "arguments": demask_evidence(show, shown_args)},
+        )
         result = self._execute(call, by_name)
         yield AgentEvent(
             "tool_result",
@@ -332,11 +358,11 @@ class AgentLoop:
                 "name": call.name,
                 "ok": result.ok,
                 "summary": result.summary,
-                "evidence": result.evidence,
+                "evidence": demask_evidence(show, result.evidence),
             },
         )
         if result.chart:
-            yield AgentEvent("chart", {"id": call.id, "spec": result.chart})
+            yield AgentEvent("chart", {"id": call.id, "spec": demask_evidence(show, result.chart)})
         hits = find_injection(result.content)
         if hits:
             result.caveats.append(
@@ -348,7 +374,7 @@ class AgentLoop:
                 }
             )
         for item in result.caveats:
-            yield AgentEvent("caveat", item)
+            yield AgentEvent("caveat", demask_evidence(show, item))
         return result
 
     def _execute(self, call: ToolCall, by_name: dict[str, Tool]) -> ToolResult:
@@ -399,7 +425,7 @@ class AgentLoop:
         yield AgentEvent(
             "final",
             {
-                "text": text,
+                "text": demask_text(self.display, text),
                 "model": self.model,
                 **trust,
                 "usage": {
