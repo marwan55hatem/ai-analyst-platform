@@ -2,7 +2,7 @@
 
 The sandbox never sees the storage volume. This module checks the version belongs to the tenant
 (through the tenant-bound repository), reads only the role columns with DuckDB, removes personal
-data unless the company opted in (a personal-data customer id becomes its pseudonym), samples rows
+data unless the company opted in (the customer id always becomes its code), samples rows
 when the data is larger than SANDBOX_MAX_UPLOAD_MB, and sends CSV text in the request body.
 """
 
@@ -17,8 +17,8 @@ import pandas as pd
 
 from app.core.config import Settings
 from app.core.errors import ConflictError, NotFoundError
+from app.core.pseudonyms import load_pseudonym_map
 from app.db.repository import ColumnProfileRepository, DatasetVersionRepository
-from app.ml.modules.segments import pseudonym
 from app.services.analysis import _roles_for
 from app.services.storage import get_storage
 
@@ -71,9 +71,8 @@ def build_data(
     removed = sorted(
         c for c in role_of if profiles[c].pii_flag and not allow_pii and role_of[c] != "customer_id"
     )
-    pseudo = sorted(
-        c for c in role_of if profiles[c].pii_flag and not allow_pii and role_of[c] == "customer_id"
-    )
+    # The customer id always becomes its code, whether or not it is personal data or opted in.
+    pseudo = sorted(c for c in role_of if role_of[c] == "customer_id")
     columns = [c for c in role_of if c not in removed]
     if not columns:
         raise ConflictError("The dataset has no role columns to analyse.", code="no_role_columns")
@@ -91,9 +90,10 @@ def build_data(
             f"of {keep} of {total} rows was analysed; totals from this code are sample values."
         )
     if pseudo:
+        mapping = load_pseudonym_map(db, tenant_id, stored, settings)
         for column in pseudo:
             frame[column] = [
-                None if pd.isna(v) else pseudonym(settings.pseudonym_key, str(tenant_id), str(v))
+                None if pd.isna(v) or mapping is None else mapping.to_pseudonym(_as_text(v))
                 for v in frame[column]
             ]
         csv = frame.to_csv(index=False, lineterminator="\n")
@@ -111,6 +111,13 @@ def build_data(
         pseudonymised=pseudo,
         warnings=warnings,
     )
+
+
+def _as_text(value: Any) -> str:
+    """Match DuckDB's CAST(... AS VARCHAR) for the values pandas hands back."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _read(path: str, columns: list[str], settings: Settings) -> tuple[pd.DataFrame, int]:

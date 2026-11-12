@@ -40,6 +40,9 @@ GUARDED_FILES = {
     "app/services/alerts.py": 90.0,
     "app/services/run_summary.py": 85.0,
     "app/services/reports.py": 85.0,
+    # Step 14: customer codes toward the model and back for display
+    "app/core/pseudonyms.py": 90.0,
+    "app/agent/demask.py": 90.0,
 }
 
 

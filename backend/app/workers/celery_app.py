@@ -41,6 +41,9 @@ celery_app.conf.update(
 
 
 @signals.worker_init.connect
+@signals.beat_init.connect
 def startup_checks(**_: Any) -> None:
-    """Warn once per worker about settings that are unsafe in production."""
-    warn_derived_pseudonym_secret(get_settings())
+    """Refuse unsafe production settings and warn about a derived pseudonym key (worker, beat)."""
+    settings = get_settings()
+    settings.ensure_production_safe()
+    warn_derived_pseudonym_secret(settings)

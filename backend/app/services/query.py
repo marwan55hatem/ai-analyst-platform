@@ -234,8 +234,13 @@ class SafeQueryService:
         sql: str,
         row_limit: int = DEFAULT_ROW_LIMIT,
         timeout_s: float | None = None,
+        pseudonymise: tuple[str, str] | None = None,
     ) -> QueryResult:
-        """Validate and execute `sql`; rows are capped at `row_limit`."""
+        """Validate and execute `sql`; rows are capped at `row_limit`.
+
+        `pseudonymise` is (column, map parquet path): that column is replaced by its customer
+        codes before the query runs, so the query and its result only ever see the codes.
+        """
         settings = get_settings()
         limit = max(1, min(int(row_limit), MAX_ROW_LIMIT))
         timeout = timeout_s if timeout_s is not None else settings.query_timeout_s
@@ -243,7 +248,7 @@ class SafeQueryService:
         parquet = self._parquet_path(tenant_id, dataset_version_id)
 
         started = time.perf_counter()
-        con = self._connect(parquet)
+        con = self._connect(parquet, pseudonymise)
         timer = threading.Timer(timeout, con.interrupt)
         timer.start()
         try:
@@ -279,7 +284,9 @@ class SafeQueryService:
         return str(get_storage().local_path(version.parquet_path))
 
     @staticmethod
-    def _connect(parquet: str) -> duckdb.DuckDBPyConnection:
+    def _connect(
+        parquet: str, pseudonymise: tuple[str, str] | None = None
+    ) -> duckdb.DuckDBPyConnection:
         """Open an isolated in-memory database holding only table `data`, then lock it."""
         settings = get_settings()
         con = duckdb.connect(
@@ -293,7 +300,19 @@ class SafeQueryService:
             },
         )
         try:
-            con.execute(f"CREATE TABLE {TABLE_NAME} AS SELECT * FROM read_parquet(?)", [parquet])
+            if pseudonymise is None:
+                con.execute(
+                    f"CREATE TABLE {TABLE_NAME} AS SELECT * FROM read_parquet(?)", [parquet]
+                )
+            else:
+                column, codes = pseudonymise
+                quoted = '"' + column.replace('"', '""') + '"'
+                con.execute(
+                    f"CREATE TABLE {TABLE_NAME} AS "  # noqa: S608 - quoted identifier
+                    f"SELECT d.* REPLACE (m.code AS {quoted}) FROM read_parquet(?) AS d "
+                    f"LEFT JOIN read_parquet(?) AS m ON CAST(d.{quoted} AS VARCHAR) = m.real",
+                    [parquet, codes],
+                )
             con.execute("SET enable_external_access=false")
             con.execute("SET lock_configuration=true")
         except BaseException:

@@ -266,6 +266,18 @@ def _forecast_result(
     )
 
 
+UNKNOWN_CUSTOMER = "CUST-UNKNOWN"
+
+
+def _coded(ctx: AgentContext, item: dict[str, Any]) -> dict[str, Any]:
+    """Replace a stored customer key (raw id or older pseudonym) by its customer code."""
+    if "customer_key" in item:
+        mapping = ctx.pseudonyms()
+        code = mapping.from_stored(item["customer_key"]) if mapping else None
+        item["customer_key"] = code or UNKNOWN_CUSTOMER
+    return item
+
+
 def _stored_findings(
     ctx: AgentContext, build: Any, keep: tuple[str, ...], **kwargs: Any
 ) -> ToolResult:
@@ -277,7 +289,8 @@ def _stored_findings(
         block = payload.get(key)
         if isinstance(block, dict) and block.get("items"):
             block["items"] = [
-                schema.model_validate(i).model_dump(mode="json") for i in block["items"]
+                _coded(ctx, schema.model_validate(i).model_dump(mode="json"))
+                for i in block["items"]
             ]
     insights: list[Insight] = payload.pop("insights", [])
     content = {k: payload.get(k) for k in keep}

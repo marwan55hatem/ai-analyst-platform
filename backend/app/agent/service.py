@@ -6,6 +6,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
+from typing import Any
 
 import structlog
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.agent import events
 from app.agent.budget import TokenBudget
 from app.agent.context import is_replayable
+from app.agent.demask import demask_evidence, demask_text, display_map_for, pseudonymise_question
 from app.agent.events import AgentEvent, jsonable
 from app.agent.loop import AgentLoop, Record
 from app.agent.prompt import build_system_prompt
@@ -20,6 +22,7 @@ from app.agent.sandbox_client import SandboxClient
 from app.agent.tools import TOOLS_BY_NAME, AgentContext
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError, ForbiddenError
+from app.core.pseudonyms import PseudonymMap
 from app.db.repository import (
     BusinessProfileRepository,
     ConversationRepository,
@@ -61,7 +64,7 @@ def require_manage(user: User, conversation: Conversation) -> None:
         raise ForbiddenError("Only the creator, an owner or an admin can change this conversation")
 
 
-def history_messages(rows: list[Message]) -> list[ChatMessage]:
+def history_messages(rows: list[Message], mapping: PseudonymMap | None = None) -> list[ChatMessage]:
     """Rebuild provider messages from stored rows, starting at a user message.
 
     A window that started with a tool result or an assistant tool call would be rejected by the
@@ -90,8 +93,8 @@ def history_messages(rows: list[Message]) -> list[ChatMessage]:
             if row.tool_call_id in dropped:
                 continue
             result.append(ChatMessage("tool", row.content, tool_call_id=row.tool_call_id))
-        else:
-            result.append(ChatMessage("user", row.content))
+        else:  # stored as typed; the model gets typed customer ids as their codes
+            result.append(ChatMessage("user", pseudonymise_question(mapping, row.content)))
     return result
 
 
@@ -188,7 +191,6 @@ class ChatSession:
             return
         profile = BusinessProfileRepository(db, self.tenant_id).current()
         budget = TokenBudget(self._factory, self.tenant_id, self.settings.agent_daily_token_budget)
-        self._maybe_summarise(db, conversation, prior, llm, budget)
         window = prior[-self.settings.agent_history_messages :] if prior else []
         ctx = AgentContext(
             db=db,
@@ -202,6 +204,8 @@ class ChatSession:
             if self._sandbox is not None
             else _sandbox(self.settings.sandbox_url, self.settings.sandbox_timeout_s),
         )
+        mapping = ctx.pseudonyms()
+        self._maybe_summarise(db, conversation, prior, llm, budget, mapping)
         loop = AgentLoop(
             llm,
             ctx,
@@ -216,7 +220,11 @@ class ChatSession:
         final: AgentEvent | None = None
         failure: AgentEvent | None = None
         stopped = False
-        stream = loop.run(system, history_messages(window), self.question)
+        stream = loop.run(
+            system,
+            history_messages(window, mapping),
+            pseudonymise_question(mapping, self.question),
+        )
         try:
             for event in stream:
                 if event.type == "final":
@@ -284,6 +292,7 @@ class ChatSession:
         prior: list[Message],
         llm: LLMClient,
         budget: TokenBudget,
+        mapping: PseudonymMap | None = None,
     ) -> None:
         """Fold messages older than the history window into the conversation summary."""
         keep = self.settings.agent_history_messages
@@ -293,10 +302,10 @@ class ChatSession:
             or len(old) <= conversation.summarized_count
         ):
             return
-        lines = [f"{m.role}: {m.content[:500]}" for m in old if m.role in ("user", "assistant")]
+        lines = summary_lines(old, mapping)
         messages = [
             ChatMessage("system", SUMMARY_INSTRUCTION),
-            *[ChatMessage("user", m.content[:500]) for m in old if m.role == "user"],
+            *[ChatMessage("user", _coded(m, mapping)) for m in old if m.role == "user"],
             ChatMessage("user", "\n".join(lines)[-12_000:]),
         ]
         try:
@@ -316,6 +325,48 @@ class ChatSession:
             conversation.summary = text[:4_000]
             conversation.summarized_count = len(old)
             db.commit()
+
+
+def _coded(message: Message, mapping: PseudonymMap | None) -> str:
+    """Return a stored message as the model may see it: any real customer id as its code."""
+    return pseudonymise_question(mapping, message.content)[:500]
+
+
+def summary_lines(rows: list[Message], mapping: PseudonymMap | None) -> list[str]:
+    """Return the conversation lines a summary is made from (coded; partial answers left out).
+
+    A stopped answer is stored as the person saw it, with real customer ids, and is never
+    verified, so it is left out here as it is from the replayed history.
+    """
+    return [
+        f"{m.role}: {_coded(m, mapping)}"
+        for m in rows
+        if m.role in ("user", "assistant") and not (m.evidence or {}).get("partial")
+    ]
+
+
+def conversation_display_map(
+    db: Session, tenant_id: uuid.UUID, conversation: Conversation, settings: Settings
+) -> PseudonymMap | None:
+    """Return the map that shows stored answers with real customer ids (None: nothing to map)."""
+    try:
+        dataset = DatasetRepository(db, tenant_id).get_or_404(conversation.dataset_id)
+        version = current_ready_version(db, dataset)
+    except AppError:
+        return None
+    profile = BusinessProfileRepository(db, tenant_id).current()
+    allowed = bool(profile and profile.allow_pii)
+    return display_map_for(db, tenant_id, version, settings, allow_pii=allowed)
+
+
+def shown_message(message: Message, mapping: PseudonymMap | None) -> dict[str, Any]:
+    """Return a stored message's display fields with customer codes mapped back."""
+    return {
+        "content": demask_text(mapping, message.content),
+        "tool_calls": demask_evidence(mapping, message.tool_calls),
+        "evidence": demask_evidence(mapping, message.evidence),
+        "caveats": demask_evidence(mapping, message.caveats),
+    }
 
 
 def message_cost(message: Message) -> float:

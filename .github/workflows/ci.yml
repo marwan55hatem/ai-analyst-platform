@@ -38,7 +38,35 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
       # Pango and HarfBuzz for WeasyPrint (report PDFs); the fonts themselves are in the repo
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      # Up to 5 attempts, 30 s apart; from attempt 2 on, apt uses archive.ubuntu.com instead of
+      # the runner's Azure mirror. The step still fails the job if the libraries never install.
+      - name: Install Pango and HarfBuzz (retry with mirror fallback)
+        shell: bash
+        run: |
+          packages="libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0"
+          mirror="runner default (azure.archive.ubuntu.com via apt-mirrors.txt)"
+          echo "apt source files on this runner:"
+          ls -1 /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null || true
+          for attempt in 1 2 3 4 5; do
+            if [ "$attempt" -eq 2 ]; then
+              for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                [ -f "$file" ] || continue
+                if grep -qE 'mirror\+file:/etc/apt/apt-mirrors.txt|azure\.archive\.ubuntu\.com' "$file"; then
+                  echo "switching $file to archive.ubuntu.com"
+                  sudo sed -i -E 's#mirror\+file:/etc/apt/apt-mirrors\.txt#http://archive.ubuntu.com/ubuntu/#g; s#azure\.archive\.ubuntu\.com#archive.ubuntu.com#g' "$file"
+                fi
+              done
+              mirror="archive.ubuntu.com"
+            fi
+            echo "attempt $attempt of 5, mirror: $mirror"
+            if sudo apt-get update && sudo apt-get install -y --no-install-recommends $packages; then
+              echo "installed on attempt $attempt using mirror: $mirror"
+              exit 0
+            fi
+            [ "$attempt" -lt 5 ] && sleep 30
+          done
+          echo "could not install $packages after 5 attempts"
+          exit 1
       - run: uv sync --directory backend --frozen
       - run: make lint
       # runner: 4 CPUs, ~16 GB; a worker peaks at ~700 MB, so 4 workers stay far below
@@ -49,6 +77,19 @@ jobs:
       - run: docker compose build sandbox
       - run: docker compose --profile ci run --rm sandbox-check
       - run: docker compose --profile ci run --rm sandbox-container-check
+      # One check per documented guarantee, through every layer and with the static check off;
+      # the tables are kept as an artifact (copied into docs/security.md)
+      # shell: bash adds pipefail, so a failing check is not hidden by tee
+      - shell: bash
+        run: |
+          docker compose --profile ci run --rm sandbox-isolation-check | tee sandbox-isolation.md
+          docker compose --profile ci run --rm sandbox-isolation-direct | tee -a sandbox-isolation.md
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandbox-isolation
+          path: sandbox-isolation.md
+          if-no-files-found: ignore
       - if: always()
         run: docker compose --profile ci down -v
 

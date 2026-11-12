@@ -27,9 +27,17 @@ class PiiPolicy:
     allowed: bool
 
     @classmethod
-    def for_profiles(cls, profiles: list[ColumnProfile], allowed: bool) -> "PiiPolicy":
-        """Build the policy from column profiles."""
-        return cls(frozenset(p.name.lower() for p in profiles if p.pii_flag), allowed)
+    def for_profiles(
+        cls, profiles: list[ColumnProfile], allowed: bool, coded: str | None = None
+    ) -> "PiiPolicy":
+        """Build the policy from column profiles.
+
+        `coded` is the customer id column, which the model only ever sees as codes, so it is
+        never blocked.
+        """
+        skip = (coded or "").lower()
+        names = frozenset(p.name.lower() for p in profiles if p.pii_flag and p.name.lower() != skip)
+        return cls(names, allowed)
 
     def blocked_sql_columns(self, sql: str) -> list[str]:
         """Return personal-data columns the (already validated) SQL would expose."""

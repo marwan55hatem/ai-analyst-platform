@@ -1,7 +1,7 @@
 COV_MIN ?= 85
 TEST_WORKERS ?= 1
 
-.PHONY: up down logs test lint migrate seed db-up check-storage frontend-install frontend-lint frontend-typecheck frontend-test frontend-build frontend-e2e api-client
+.PHONY: up down logs test lint migrate seed db-up check-storage frontend-install frontend-lint frontend-typecheck frontend-test frontend-build frontend-e2e api-client sandbox-isolation
 
 up:
 	docker compose up -d --build --wait
@@ -59,3 +59,9 @@ frontend-e2e:
 api-client:
 	uv run --directory backend python scripts/dump_openapi.py ../frontend/src/lib/api/openapi.json
 	npm --prefix frontend run api:generate
+
+# Sandbox isolation suite against the real container (all layers, then with the static check off)
+sandbox-isolation:
+	docker compose build sandbox
+	docker compose --profile ci run --rm sandbox-isolation-check
+	docker compose --profile ci run --rm sandbox-isolation-direct

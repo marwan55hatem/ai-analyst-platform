@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.agent.budget import TokenBudget, today
-from app.agent.service import ChatSession, message_cost, require_manage
+from app.agent.service import (
+    ChatSession,
+    conversation_display_map,
+    message_cost,
+    require_manage,
+    shown_message,
+)
 from app.agent.streams import acquire_turn, get_stream_slots, with_heartbeat
 from app.api import responses
 from app.api.deps import CurrentUser, DatasetRepo, DbSession, Limiter, require_role
@@ -188,10 +194,12 @@ def list_messages(
     """Messages in order; model reasoning is never included."""
     conversation = ConversationRepository(db, user.tenant_id).get_or_404(conversation_id)
     rows = MessageRepository(db, user.tenant_id).for_conversation(conversation.id, limit=limit)
+    mapping = conversation_display_map(db, user.tenant_id, conversation, get_settings())
     return [
         MessageOut.model_validate(
             {
                 **{c: getattr(r, c) for c in MessageOut.model_fields if c != "cost_usd_approx"},
+                **shown_message(r, mapping),
                 "cost_usd_approx": message_cost(r),
             }
         )

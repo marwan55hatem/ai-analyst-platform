@@ -101,11 +101,12 @@ def test_build_data_drops_personal_data_and_samples_large_data(
     assert (
         hidden.pseudonymised == ["customer_id"]
         and "C000" not in hidden.csv
-        and "cust_" in hidden.csv
+        and "CUST-" in hidden.csv
     )
     assert hidden.dtypes["customer_id"] == "string"
+    # Opting in to personal data never sends real customer ids: they stay codes (Step 14).
     shown = build_data(db, uuid.UUID(owner.tenant_id), customer_version, settings, allow_pii=True)
-    assert "C000" in shown.csv and shown.pseudonymised == []
+    assert "C000" not in shown.csv and shown.pseudonymised == ["customer_id"]
 
     big = upload_ready(client, owner, sample("retail_clean.csv"), "retail.csv")
     monkeypatch.setattr(settings, "sandbox_max_upload_mb", 0.002)

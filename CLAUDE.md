@@ -47,6 +47,7 @@ docker-compose.yml, Makefile, .env.example
 make up | make down | make test | make lint | make migrate | make seed
 make frontend-install | frontend-lint | frontend-typecheck | frontend-test | frontend-build
 make frontend-e2e (stack up + migrated) | make api-client (regenerate typed client)
+make sandbox-isolation (sandbox guarantees against the real container)
 npm --prefix frontend run dev   (day-to-day frontend work on the host, port 3000)
 ```
 
@@ -81,7 +82,8 @@ insights, model_runs, segment_assignments, churn_scores, conversations, messages
 - [x] Step 12b fixes from manual testing — honest cleaning-plan intro, log-scale outliers with positive bounds, duplicate cap above 0.5% with one confidence per file, actionable attention list, All time label, weekly sparklines, anomalies need z >= 4 and a 3x effect (precision and recall 1.00 on the 309k-row sample) shown top 10 of N, axis ticks at week and month grain, distinct forecast bands, forecast memory guard raised so large files test all models, Arabic copy fixes, full company name on mobile
 - [x] Step 13 chat and settings — /chat with streaming over fetch, Stop that stores the partial answer, Retry that reuses the question, one turn per conversation, safe markdown, "How I got this", verifier and computed confidence on live and stored answers, charts with table view, capability-based starters, ?insight chip, EN/AR RTL, /ai/usage with usage, model and privacy in Settings, scripted e2e paths with a guard against live models, Step 12b carryover (reports UI stays with Step 10)
 - [x] Step 12c new version upload — "Upload new data" on the dataset page (a complete export that replaces the data, never an append), compatibility check (added/missing columns, type or role changes, lost date or revenue, shorter-period warning; blocks only unanalysable files), per-upload automatic-analysis flag, version history, outcome panel with alert count, no alerts from cleaning-derived versions, deterministic chat clipboard test, Pango skip reason; docs/dataset-versions.md
-- [ ] Step 14 security and observability — must include: pseudonymise customer_id toward the LLM (HMAC, mapped back for display)
+- [x] Step 14a sandbox isolation and customer codes — `sandbox/isolation_check.py` (one check per sandbox guarantee, all layers over the socket and with the static check off; `make sandbox-isolation`, CI artifact) found and fixed the 512 MB limit being 1 GB (no memswap_limit); customer ids reach the model only as `CUST-XXXXXXXX` HMAC codes per tenant and dataset (SQL view, sandbox CSV, stored results, typed ids), mapped back on the server for streamed text, evidence and stored messages; production refuses a weak PSEUDONYM_SECRET (api, worker, beat); docs/security.md started
+- [ ] Step 14b security hardening and observability — headers/CSP, CORS and cookies, authz matrix, upload limits, login throttle, trusted-proxy client IP, MLflow auth, logs/health/metrics, audits and faster CI
 - [ ] Step 15 deployment and docs — must include: worker sizing (at least 1 GB: `mem_limit` 1024m, `FORECAST_MEMORY_MB` guard 850 MB); Lighthouse Performance target of 80 or more on the dashboard with the deployed build, using lazy-loaded charts and deferred below-the-fold panels (baseline 44-47 on the dashboard, 55-70 on other pages)
 
 ## Environment notes
